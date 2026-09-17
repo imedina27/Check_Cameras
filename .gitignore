@@ -1,0 +1,22 @@
+# Pipenv / Python
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+
+# VS Code
+.vscode/
+
+# Variables de entorno / secretos
+.env
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Version 1 del programa (Solo como referencia)
+Check_Cam_V1
