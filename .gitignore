@@ -10,6 +10,10 @@ __pycache__/
 
 # Variables de entorno / secretos
 .env
+*.env
+
+# Configuración de plantas (contiene datos sensibles de red)
+conf/plants/plants*.yaml
 
 # Logs
 *.log

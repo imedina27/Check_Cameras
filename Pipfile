@@ -4,6 +4,13 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
+python-dotenv = "*"
+pyyaml = "*"
+requests = "*"
+xmltodict = "*"
+colorama = "*"
+pylint = "*"
+pylint-celery = "*"
 
 [dev-packages]
 
