@@ -38,8 +38,8 @@ class TestDahuaDicToJson:
         }
 
     def test_linea_con_igual_en_el_valor_si_se_conserva(self):
-        # A diferencia de Axis/Vivotek, Dahua usa partition("=") (solo el
-        # primer "=") y SI conserva el resto del valor.
+        # Dahua usa partition("=") (solo el primer "=") y SI conserva el
+        # resto del valor.
         texto = "table.Algo.Valor=a=b\n"
         assert dahua_dic_to_json(texto) == {"Algo": {"Valor": "a=b"}}
 
@@ -56,6 +56,15 @@ class TestVivotekTxtToJson:
         texto = "system_hostname='CAM01'\n"
         resultado = vivotek_txt_to_json(texto)
         assert resultado["system"]["hostname"] == "CAM01"
+
+    def test_linea_con_igual_en_el_valor_si_se_conserva(self):
+        # Corregido: Vivotek usaba split("=") y perdia la linea completa si
+        # el valor traia un "=" (confirmado con datos reales: un token
+        # base64 en vadp_number). Ahora usa partition("="), igual que
+        # Axis/Dahua, y si conserva el valor completo.
+        texto = "vadp_number='BbM79RE=94nv7GCafhb4YxaiY0jvbz8T/9gL'\n"
+        resultado = vivotek_txt_to_json(texto)
+        assert resultado["vadp"]["number"] == "BbM79RE=94nv7GCafhb4YxaiY0jvbz8T/9gL"
 
     def test_texto_vacio(self):
         assert vivotek_txt_to_json("") == {}

@@ -58,7 +58,7 @@ def VivoCamConf(session, camera_ip, username, password, proxy_ip, proxy_port, ch
     # Decodificar la contraseña si contiene caracteres codificados como %40
     password = urllib.parse.unquote(password)
         
-    grl_url = f"http://{camera_ip}/cgi-bin/admin/getparam.cgi?network&videoin&system"
+    grl_url = f"http://{camera_ip}/cgi-bin/admin/getparam.cgi"
 
     headers = {
         "Content-Type": "application/json"
@@ -99,10 +99,10 @@ def txt_to_json(text):
 
     for line in text.split('\n'):
         line = line.strip()
-        key_value = line.split("=")
-        if len(key_value) == 2:
-            key = key_value[0].strip()
-            value = key_value[1].strip().strip("'")
+        key, sep, value = line.partition("=")
+        if sep:
+            key = key.strip()
+            value = value.strip().strip("'")
             key_parts = key.split("_")  # Vivotek usa _ en lugar de .
             current_dict = config_dict
 
