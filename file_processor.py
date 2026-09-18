@@ -7,6 +7,7 @@ import json
 import yaml
 import os
 import re
+import threading
 
 init(autoreset=True)
 
@@ -23,6 +24,12 @@ _dirs_ensured = set()
 # Loggers por archivo de log (uno por planta/servidor), para no reconfigurar
 # handlers en cada llamada.
 _server_loggers = {}
+
+# Candado para crear loggers/directorios de forma segura entre hilos (varias
+# cámaras del mismo servidor pueden loguear por primera vez casi al mismo
+# tiempo al paralelizar) — sin esto, dos hilos podrían crear el mismo logger
+# dos veces y duplicar los manejadores (líneas repetidas en el log).
+_logger_lock = threading.Lock()
 
 _LOG_FORMAT = "[%(asctime)s] %(levelname)-7s %(message)s"
 _LOG_DATEFMT = "%H:%M:%S"
@@ -187,35 +194,42 @@ def resolve_brand(url):                                                     #---
 
 def _get_server_logger(log_file, plant_label):
     """Devuelve (creándolo si hace falta) el logger para este archivo de log:
-    un FileHandler (texto plano) + un StreamHandler coloreado por nivel."""
+    un FileHandler (texto plano) + un StreamHandler coloreado por nivel.
+    Seguro para hilos: varias cámaras del mismo servidor pueden pedirlo por
+    primera vez casi al mismo tiempo al paralelizar."""
     if log_file in _server_loggers:
         return _server_loggers[log_file]
 
-    file_is_new = not os.path.isfile(log_file)
+    with _logger_lock:
+        # Volver a revisar: otro hilo pudo haberlo creado mientras esperábamos el candado
+        if log_file in _server_loggers:
+            return _server_loggers[log_file]
 
-    logger = logging.getLogger(f"check_cameras.{log_file}")
-    logger.setLevel(STRUCTURE_LEVEL)
-    logger.propagate = False
+        file_is_new = not os.path.isfile(log_file)
 
-    file_handler = logging.FileHandler(log_file, encoding="utf-8")
-    file_handler.setFormatter(logging.Formatter(_LOG_FORMAT, datefmt=_LOG_DATEFMT))
-    logger.addHandler(file_handler)
+        logger = logging.getLogger(f"check_cameras.{log_file}")
+        logger.setLevel(STRUCTURE_LEVEL)
+        logger.propagate = False
 
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(_ColorConsoleFormatter(_LOG_FORMAT, datefmt=_LOG_DATEFMT))
-    logger.addHandler(console_handler)
+        file_handler = logging.FileHandler(log_file, encoding="utf-8")
+        file_handler.setFormatter(logging.Formatter(_LOG_FORMAT, datefmt=_LOG_DATEFMT))
+        logger.addHandler(file_handler)
 
-    if file_is_new:
-        header = f"{plant_label.upper()} - {datetime.now().strftime('%d/%m/%Y - %H:%M')}"
-        file_handler.stream.write(header + "\n")
-        file_handler.stream.flush()
-        print(header)
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(_ColorConsoleFormatter(_LOG_FORMAT, datefmt=_LOG_DATEFMT))
+        logger.addHandler(console_handler)
 
-    _server_loggers[log_file] = logger
-    return logger
+        if file_is_new:
+            header = f"{plant_label.upper()} - {datetime.now().strftime('%d/%m/%Y - %H:%M')}"
+            file_handler.stream.write(header + "\n")
+            file_handler.stream.flush()
+            print(header)
+
+        _server_loggers[log_file] = logger
+        return logger
 
 
-def log_processor(plant, server, status_code):                              #---------- PROBADO ----------#
+def log_processor(plant, server, status_code, prefix=""):                   #---------- PROBADO ----------#
     result_dir = dirs_path(plant, server)
     plant_label = plant if plant is not None else "error"
     server_name = server.upper() if server else plant_label.upper()
@@ -226,16 +240,20 @@ def log_processor(plant, server, status_code):                              #---
     # Línea vacía: solo da espacio visual, no es un evento a loguear.
     if isinstance(status_code, str) and status_code == "":
         for handler in logger.handlers:
-            handler.stream.write("\n")
-            handler.flush()
+            handler.acquire()
+            try:
+                handler.stream.write("\n")
+                handler.flush()
+            finally:
+                handler.release()
         return
 
     if isinstance(status_code, str):
-        logger.log(STRUCTURE_LEVEL, status_code)
+        logger.log(STRUCTURE_LEVEL, prefix + status_code)
         return
 
     raw = config.STATUS_MESSAGES.get(status_code, f"Unknown status code [{status_code}]")
-    message = status_text(status_code)
+    message = prefix + status_text(status_code)
     if raw.startswith("[WARNING]"):
         logger.warning(message)
     elif raw.startswith("[ERROR]"):

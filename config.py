@@ -50,6 +50,9 @@ MAX_RETRIES = int(os.getenv('MAX_RETRIES', 2))
 # log (verde/amarillo), no cancela ni omite nada.
 CAM_TIME_THRESHOLD = int(os.getenv('CAM_TIME_THRESHOLD', 15))
 
+# Cámaras procesadas en paralelo dentro de un mismo servidor
+MAX_CAMERA_WORKERS = int(os.getenv('MAX_CAMERA_WORKERS', 5))
+
 
 # ============================================
 # CONSTANTES DE APLICACIÓN

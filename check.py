@@ -3,6 +3,7 @@ from file_processor import status_text, is_success_code, write_summary, log_came
 from system_processor import ping, name_host, create_tunnel, close_tunnel
 from datetime import datetime
 from cameras import Camera
+import concurrent.futures
 import config
 import time
 
@@ -66,6 +67,71 @@ def _CheckServerSafe(dat_server):
 
 REQUIRED_SERVER_KEYS = ['serv_name', 'plant', 'type', 'addresses', 'proxy_port', 'ia_ports']
 REQUIRED_ADDRESS_KEYS = ['local', 'cameras', 'zerotier']
+
+
+def _process_camera(alias, cam, serv_name, plant, ai_port, proxy_ip, proxy_port):
+    """Revisa una sola cámara completa (Cam_Up + Cam_AI_Image + Cam_Image +
+    Cam_Config) y regresa su resultado. Cada línea de log lleva el alias de
+    la cámara al frente, porque varias cámaras corren en paralelo y sus
+    líneas se intercalan en el log del servidor."""
+    video_url = cam.get('videoURL')
+    info_cam = InfoCam_url(video_url, plant, serv_name)
+
+    brand = info_cam.get('brand')
+    cam_ip = info_cam.get('ip')
+    cam_user = info_cam.get('user')
+    cam_pass = info_cam.get('password')
+    channel = info_cam.get('channel', 1)
+
+    # Generar el objeto cámara
+    cam_host = Camera(alias, brand, cam_ip, cam_user, cam_pass,
+                    serv_name, plant, ai_port, proxy_ip, proxy_port, channel)
+
+    camera_result = {'alias': alias, 'ip': cam_ip, 'failures': []}
+    alias_tag = f"{alias}: "
+    inicio_camara = time.perf_counter()
+
+    # Verificar el puerto 80 de la cámara
+    cam_up = cam_host.Cam_Up()
+    log_processor(plant, serv_name, f"Camera: {alias} IP: {cam_ip}")
+    log_processor(plant, serv_name, cam_up, alias_tag)
+
+    if cam_up == 100:
+        # Descargar la imagen de la IA
+        ia_image = cam_host.Cam_AI_Image()
+        log_processor(plant, serv_name, ia_image, alias_tag)
+        if not is_success_code(ia_image):
+            camera_result['failures'].append(f"Imagen IA: {_clean_status(ia_image)}")
+
+        # Descargar la imagen de la cámara
+        cam_image = cam_host.Cam_Image()
+        log_processor(plant, serv_name, cam_image, alias_tag)
+        if not is_success_code(cam_image):
+            camera_result['failures'].append(f"Imagen cámara: {_clean_status(cam_image)}")
+
+        # Descargar la configuración de la cámara
+        cam_conf = cam_host.Cam_Config()
+        log_processor(plant, serv_name, cam_conf, alias_tag)
+        if not is_success_code(cam_conf):
+            camera_result['failures'].append(f"Configuración: {_clean_status(cam_conf)}")
+    else:
+        camera_result['failures'].append(f"Puerto 80: {_clean_status(cam_up)}")
+
+    camera_result['complete'] = len(camera_result['failures']) == 0
+    elapsed = time.perf_counter() - inicio_camara
+    log_camera_time(plant, serv_name, alias, elapsed)
+    log_processor(plant, serv_name, f"{alias}: {'='*60}")
+    return camera_result
+
+
+def _process_camera_safe(alias, cam, serv_name, plant, ai_port, proxy_ip, proxy_port):
+    """Aísla errores de una cámara para que no tumbe a las demás que se
+    están procesando en paralelo."""
+    try:
+        return _process_camera(alias, cam, serv_name, plant, ai_port, proxy_ip, proxy_port)
+    except Exception as e:
+        log_processor(plant, serv_name, f"[ERROR] {alias}: fallo inesperado procesando la cámara: {e}")
+        return {'alias': alias, 'ip': '', 'failures': [f"Fallo inesperado: {e}"], 'complete': False}
 
 
 def CheckServer(dat_server):                    #---------- PROBADO ----------#
@@ -202,56 +268,16 @@ def CheckServer(dat_server):                    #---------- PROBADO ----------#
             log_processor(plant, serv_name, f"{'='*60}")
             log_processor(plant, serv_name, "")
             
-            for alias, cam in active_cam.items():
-                video_url = cam.get('videoURL')
-                info_cam = InfoCam_url(video_url, plant, serv_name)
+            # Revisar las cámaras de este servidor en paralelo (no así los
+            # servidores entre sí, por el puerto compartido de los túneles)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=config.MAX_CAMERA_WORKERS) as executor:
+                futures = [
+                    executor.submit(_process_camera_safe, alias, cam, serv_name, plant, ai_port, proxy_ip, proxy_port)
+                    for alias, cam in active_cam.items()
+                ]
+                for future in concurrent.futures.as_completed(futures):
+                    server_result['cameras'].append(future.result())
 
-                brand =  info_cam.get('brand')
-                cam_ip =  info_cam.get('ip')
-                cam_user = info_cam.get('user')
-                cam_pass = info_cam.get('password')
-                channel = info_cam.get('channel', 1)
-                
-
-                # Generar el objeto cámara
-                cam_host = Camera(alias, brand, cam_ip, cam_user, cam_pass, 
-                                serv_name, plant, ai_port, proxy_ip, proxy_port, channel)
-                
-                # Verificar el puerto 80 de la cámara
-                camera_result = {'alias': alias, 'ip': cam_ip, 'failures': []}
-                inicio_camara = time.perf_counter()
-
-                cam_up = cam_host.Cam_Up()
-                log_processor(plant, serv_name, f"Camera: {alias} IP: {cam_ip}")
-                log_processor(plant, serv_name, cam_up)
-
-                if cam_up == 100:
-                    # Descargar la imagen de la IA
-                    ia_image = cam_host.Cam_AI_Image()
-                    log_processor(plant, serv_name, ia_image)
-                    if not is_success_code(ia_image):
-                        camera_result['failures'].append(f"Imagen IA: {_clean_status(ia_image)}")
-
-                    # Descargar la imagen de la cámara
-                    cam_image = cam_host.Cam_Image()
-                    log_processor(plant, serv_name, cam_image)
-                    if not is_success_code(cam_image):
-                        camera_result['failures'].append(f"Imagen cámara: {_clean_status(cam_image)}")
-
-                    # Descargar la configuración de la cámara
-                    cam_conf = cam_host.Cam_Config()
-                    log_processor(plant, serv_name, cam_conf)
-                    if not is_success_code(cam_conf):
-                        camera_result['failures'].append(f"Configuración: {_clean_status(cam_conf)}")
-                else:
-                    camera_result['failures'].append(f"Puerto 80: {_clean_status(cam_up)}")
-
-                camera_result['complete'] = len(camera_result['failures']) == 0
-                elapsed = time.perf_counter() - inicio_camara
-                log_camera_time(plant, serv_name, alias, elapsed)
-                server_result['cameras'].append(camera_result)
-                log_processor(plant, serv_name, f"{'='*60}")
-            
             # Cerrar tunel IA
             if tunn_ia:
                 close_tunnel(ia_loc_port, False, plant, serv_name)
