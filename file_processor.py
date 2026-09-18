@@ -1,8 +1,8 @@
 from colorama import init, Fore, Style
 from datetime import datetime
 import requests
+import logging
 import config
-import locale
 import json
 import yaml
 import os
@@ -10,15 +10,53 @@ import re
 
 init(autoreset=True)
 
+MESES_ES = {
+    1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
+    5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto',
+    9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'
+}
+
+# Carpetas ya confirmadas/creadas en esta corrida, para no repetir llamadas
+# al sistema de archivos (os.makedirs) en cada línea de log.
+_dirs_ensured = set()
+
+# Loggers por archivo de log (uno por planta/servidor), para no reconfigurar
+# handlers en cada llamada.
+_server_loggers = {}
+
+_LOG_FORMAT = "[%(asctime)s] %(levelname)-7s %(message)s"
+_LOG_DATEFMT = "%H:%M:%S"
+
+# Nivel para líneas puramente estructurales (separadores, "Camera: X IP: Y",
+# "Ping to Server..."): se muestran como "INFO" en el texto, igual que hoy,
+# pero SIN color — así el verde queda reservado a éxitos reales y el rojo a
+# errores reales, y se distingue de un vistazo el cambio de servidor/cámara.
+STRUCTURE_LEVEL = 15
+logging.addLevelName(STRUCTURE_LEVEL, "INFO")
+
+_LEVEL_COLORS = {
+    logging.INFO: Fore.GREEN,
+    logging.WARNING: Fore.YELLOW,
+    logging.ERROR: Fore.RED,
+}
+
+
+class _ColorConsoleFormatter(logging.Formatter):
+    def format(self, record):
+        base = super().format(record)
+        color = _LEVEL_COLORS.get(record.levelno, "")
+        return f"{color}{base}{Style.RESET_ALL}" if color else base
+
 
 def InfoPlant(plant, server):                                               #---------- PROBADO ----------#
     try:
         # Obtener ruta del archivo YAML relativa al script
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        path_file = os.path.join(current_dir, 'conf', 'plants', 'plants.yaml')
+        path_file = os.path.join(current_dir, 'conf', 'plants', config.PLANTS_FILE)
 
         # Intentar abrir el archivo
         try:
+            print(f"[INFO] Cargando configuración de plantas: {config.PLANTS_FILE}")
             with open(path_file, 'r', encoding='utf-8') as archivo:
                 content = yaml.safe_load(archivo)
         except FileNotFoundError:
@@ -65,11 +103,20 @@ def InfoPlant(plant, server):                                               #---
 
             return (900, result)
         
-    except Exception:
+    except Exception as e:
+        print(f"[ERROR] Fallo inesperado leyendo la configuración de plantas: {e}")
         return (905, {})
         
 
-def InfoCam_url(url):                                                       #---------- PROBADO ----------#
+def mask_credentials(url):                                                  #---------- PROBADO ----------#
+    # Enmascara usuario y contraseña embebidos en una URL (ej. rtsp://user:pass@ip)
+    # para que nunca se impriman/logueen credenciales en texto plano.
+    if not url:
+        return url
+    return re.sub(r'(://)[^:/@]+:[^/]*@', r'\1***:***@', url)
+
+
+def InfoCam_url(url, plant=None, server=None):                              #---------- PROBADO ----------#
     # Establecer valores por defecto
     info = {
         'user': '',
@@ -114,8 +161,8 @@ def InfoCam_url(url):                                                       #---
             info['channel'] = int(match_channel.group(1))
                     
     except Exception as e:
-        print(f"Error al extraer información de la URL {url}: {str(e)}")
-    
+        log_processor(plant, server, f"[ERROR] Error al extraer información de la URL {mask_credentials(url)}: {str(e)}")
+
     return info
 
 
@@ -138,56 +185,97 @@ def resolve_brand(url):                                                     #---
         return "DESCONOCIDO"
     
 
-def colorize(output):                                                       #---------- PROBADO ----------#
-    if "SUCCESS" in output:
-        return output.replace("SUCCESS", Fore.GREEN + "SUCCESS" + Style.RESET_ALL)
-    elif "WARNING" in output:
-        return output.replace("WARNING", Fore.YELLOW + "WARNING" + Style.RESET_ALL)
-    elif "ERROR" in output:
-        return output.replace("ERROR", Fore.RED + "ERROR" + Style.RESET_ALL)
-    return output
+def _get_server_logger(log_file, plant_label):
+    """Devuelve (creándolo si hace falta) el logger para este archivo de log:
+    un FileHandler (texto plano) + un StreamHandler coloreado por nivel."""
+    if log_file in _server_loggers:
+        return _server_loggers[log_file]
+
+    file_is_new = not os.path.isfile(log_file)
+
+    logger = logging.getLogger(f"check_cameras.{log_file}")
+    logger.setLevel(STRUCTURE_LEVEL)
+    logger.propagate = False
+
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setFormatter(logging.Formatter(_LOG_FORMAT, datefmt=_LOG_DATEFMT))
+    logger.addHandler(file_handler)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(_ColorConsoleFormatter(_LOG_FORMAT, datefmt=_LOG_DATEFMT))
+    logger.addHandler(console_handler)
+
+    if file_is_new:
+        header = f"{plant_label.upper()} - {datetime.now().strftime('%d/%m/%Y - %H:%M')}"
+        file_handler.stream.write(header + "\n")
+        file_handler.stream.flush()
+        print(header)
+
+    _server_loggers[log_file] = logger
+    return logger
 
 
-def log_processor(plant, server, status_code, add_timestamp: bool):         #---------- PROBADO ----------#
-    if isinstance(status_code, str):
-        message = status_code
-    else:
-        message = config.STATUS_MESSAGES.get(
-            status_code, 
-            f"[ERROR]   Unknown status code     [{status_code}]"
-        )
-        
+def log_processor(plant, server, status_code):                              #---------- PROBADO ----------#
     result_dir = dirs_path(plant, server)
-    if plant is None:
-        plant = "error"
-    server_name = server.upper() if server else plant.upper()
+    plant_label = plant if plant is not None else "error"
+    server_name = server.upper() if server else plant_label.upper()
     log_file = os.path.join(result_dir, f"{server_name}.log")
-    file_exists = os.path.isfile(log_file)
-    
-    with open(log_file, 'a') as f:
-        if not file_exists:
-            date_now = datetime.now()
-            header = f"{plant.upper()} - {date_now.strftime('%d/%m/%Y - %H:%M')}\n"
-            f.write(header)
-            print(header.strip())
-        
-        if add_timestamp:
-            timestamp = datetime.now().strftime('%H:%M:%S')
-            output = f"[{timestamp}] {message}"
-        else:
-            output = message
-        
-        # Archivo sin colores
-        f.write(output + "\n")
-        
-        # Pantalla con solo la palabra coloreada
-        print(colorize(output))
+
+    logger = _get_server_logger(log_file, plant_label)
+
+    # Línea vacía: solo da espacio visual, no es un evento a loguear.
+    if isinstance(status_code, str) and status_code == "":
+        for handler in logger.handlers:
+            handler.stream.write("\n")
+            handler.flush()
+        return
+
+    if isinstance(status_code, str):
+        logger.log(STRUCTURE_LEVEL, status_code)
+        return
+
+    raw = config.STATUS_MESSAGES.get(status_code, f"Unknown status code [{status_code}]")
+    message = status_text(status_code)
+    if raw.startswith("[WARNING]"):
+        logger.warning(message)
+    elif raw.startswith("[ERROR]"):
+        logger.error(message)
+    else:
+        logger.info(message)
+
+
+def status_text(status_code):                                              #---------- PROBADO ----------#
+    """Texto legible de un status_code, sin el prefijo [SUCCESS]/[WARNING]/[ERROR]."""
+    raw = config.STATUS_MESSAGES.get(status_code, f"Unknown status code [{status_code}]")
+    return re.sub(r"^\[(SUCCESS|WARNING|ERROR)\]\s*", "", raw).strip()
+
+
+def is_success_code(status_code):                                          #---------- PROBADO ----------#
+    return config.STATUS_MESSAGES.get(status_code, "").startswith("[SUCCESS]")
+
+
+def log_camera_time(plant, server, alias, elapsed_seconds):                 #---------- PROBADO ----------#
+    """Registra cuánto tardó el proceso completo de una cámara (Cam_Up +
+    Cam_AI_Image + Cam_Image + Cam_Config): verde si quedó dentro de
+    config.CAM_TIME_THRESHOLD, amarillo si lo excedió. Es solo visibilidad,
+    no cancela ni omite nada."""
+    result_dir = dirs_path(plant, server)
+    plant_label = plant if plant is not None else "error"
+    server_name = server.upper() if server else plant_label.upper()
+    log_file = os.path.join(result_dir, f"{server_name}.log")
+
+    logger = _get_server_logger(log_file, plant_label)
+    mensaje = f"Tiempo de proceso: {alias}: {elapsed_seconds:.2f}s"
+
+    if elapsed_seconds <= config.CAM_TIME_THRESHOLD:
+        logger.info(mensaje)
+    else:
+        logger.warning(mensaje)
 
 
 def dirs_path(plant=None, server=None):                                     #---------- PROBADO ----------#
-    locale.setlocale(locale.LC_TIME, 'es_MX.UTF-8')
     date_now = datetime.now()
-    month_dir = f"{date_now.month:02d}- {date_now.strftime('%B').capitalize()}"
+    month_dir = f"{date_now.month:02d}- {MESES_ES[date_now.month]}"
     text_date = date_now.strftime("%d%m%y")
 
     # Construir partes de la ruta solo si tienen valor
@@ -198,11 +286,13 @@ def dirs_path(plant=None, server=None):                                     #---
         parts.append(server)
 
     result_path = os.path.join(*parts)
-    os.makedirs(result_path, exist_ok=True)
+    if result_path not in _dirs_ensured:
+        os.makedirs(result_path, exist_ok=True)
+        _dirs_ensured.add(result_path)
     return result_path
 
 
-def read_yaml(url):                                                         #---------- PROBADO ----------#
+def read_yaml(url, plant=None, server=None):                                #---------- PROBADO ----------#
     """
     Lee un archivo YAML desde una URL HTTP.
     
@@ -219,6 +309,7 @@ def read_yaml(url):                                                         #---
                 412 - Formato YAML inválido
                 413 - Error HTTP (404, 500, etc.)
                 414 - URL vacía
+                415 - Error inesperado (no HTTP/timeout/YAML)
             - data (dict|None): Datos del YAML si es exitoso, None si hay error
     """
     timeout = config.YAML_TIMEOUT
@@ -247,9 +338,10 @@ def read_yaml(url):                                                         #---
         
     except yaml.YAMLError:
         return 412, None
-        
-    except Exception:
-        return 413, None
+
+    except Exception as e:
+        log_processor(plant, server, f"[ERROR] Error inesperado leyendo YAML desde {url}: {e}")
+        return 415, None
     
 
 def save_img(cam_img, plant, serv_name, cam_name, ai):                      #---------- PROBADO ----------#
@@ -278,10 +370,69 @@ def save_img(cam_img, plant, serv_name, cam_name, ai):                      #---
     
 
 def save_json(cam_json, plant, serv_name, cam_name):                        #---------- PROBADO ----------#
-    
+
     plant_dir = dirs_path(plant, serv_name)
     file_path = os.path.join(plant_dir, f"{cam_name}.json")
 
     with open(file_path, "w", encoding="utf-8") as archivo:
         json.dump(cam_json, archivo, indent=4)
         return 900
+
+
+def write_summary(server_results):                                         #---------- PROBADO ----------#
+    """Genera el resumen de una corrida con varios servidores (--plant all o
+    CheckPlant con varios servidores encontrados): totales de servidores/
+    cámaras, y el detalle por planta de las cámaras que fallaron y en qué.
+    Se guarda como resumen_dd-mm-aaaa.log en la carpeta del día."""
+    day_dir = dirs_path()
+    date_str = datetime.now().strftime("%d-%m-%Y")
+    summary_file = os.path.join(day_dir, f"resumen_{date_str}.log")
+
+    servers_ok = [r for r in server_results if r["problem"] is None]
+    servers_problem = [r for r in server_results if r["problem"] is not None]
+
+    all_cameras = [cam for r in server_results for cam in r["cameras"]]
+    cameras_ok = [c for c in all_cameras if c["complete"]]
+    cameras_failed = [c for c in all_cameras if not c["complete"]]
+
+    lines = []
+    lines.append("=" * 42)
+    lines.append("RESUMEN DE EJECUCIÓN")
+    lines.append("=" * 42)
+    lines.append(f"Servidores revisados: {len(server_results)} ({len(servers_ok)} OK, {len(servers_problem)} con problemas)")
+    lines.append(f"Cámaras revisadas: {len(all_cameras)}")
+    lines.append(f"  - Completas (imagen IA + imagen + config): {len(cameras_ok)}")
+    lines.append(f"  - Con al menos una falla: {len(cameras_failed)}")
+    if servers_problem:
+        lines.append("Servidores con problemas:")
+        for r in servers_problem:
+            lines.append(f"  - {r['serv_name']} ({r['plant']}): {r['problem']}")
+    lines.append("=" * 42)
+
+    if cameras_failed:
+        lines.append("")
+        lines.append("DETALLE POR PLANTA - CÁMARAS CON FALLAS")
+        by_plant = {}
+        for r in server_results:
+            for cam in r["cameras"]:
+                if not cam["complete"]:
+                    by_plant.setdefault(r["plant"], []).append((r["serv_name"], cam))
+        for plant_name in sorted(by_plant):
+            lines.append(f"{plant_name}:")
+            entries = by_plant[plant_name]
+
+            # Alinear columnas dentro de cada planta según el nombre/IP más largo
+            tag_width = max(len(f"[{serv_name}] {cam['alias']}") for serv_name, cam in entries)
+            ip_width = max(len(cam['ip']) for _, cam in entries)
+
+            for serv_name, cam in entries:
+                tag = f"[{serv_name}] {cam['alias']}".ljust(tag_width)
+                ip = cam['ip'].ljust(ip_width)
+                fails = "; ".join(cam["failures"])
+                lines.append(f"  - {tag}  {ip}  {fails}")
+
+    text = "\n".join(lines)
+    with open(summary_file, "w", encoding="utf-8") as f:
+        f.write(text + "\n")
+    print(text)
+    return summary_file

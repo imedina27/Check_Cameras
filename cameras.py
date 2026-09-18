@@ -8,6 +8,23 @@ import requests
 import time
 
 
+# Registro de manejadores por marca de cámara: brand -> (func_imagen, func_config).
+# Para agregar una marca nueva:
+#   1. Crear conf/cameras/<marca>.py con <Marca>CamImage y <Marca>CamConf,
+#      misma firma que las existentes: (session, camera_ip, username, password,
+#      proxy_ip, proxy_port, channel=1).
+#   2. Agregar la entrada aquí.
+#   3. Agregar el patrón de detección en resolve_brand() (file_processor.py) —
+#      si no, esa marca nunca se identifica a partir de la videoURL y nunca
+#      llega a usar el manejador de aquí.
+CAMERA_HANDLERS = {
+    "AXIS":      (AxisCamImage, AxisCamConf),
+    "HIKVISION": (HikvCamImage, HikvCamConf),
+    "VIVOTEK":   (VivoCamImage, VivoCamConf),
+    "DAHUA":     (DahuaCamImage, DahuaCamConf),
+}
+
+
 class Camera:
     def __init__(self, alias, brand, cam_ip, cam_user, cam_pass, serv_name, plant, ia_port, proxy_ip, proxy_port, channel=1):
         self.alias = alias
@@ -21,6 +38,9 @@ class Camera:
         self.proxy_port = proxy_port
         self.proxy_ip = proxy_ip
         self.channel = channel
+        # Session compartida entre todas las peticiones de esta cámara:
+        # reutiliza la conexión TCP en vez de abrir una nueva por cada request.
+        self.session = requests.Session()
 
     def Cam_Up(self):                       #---------- PROBADO ----------#
         if self.proxy_ip and self.proxy_port:
@@ -35,8 +55,8 @@ class Camera:
         while current_attempt < max_retries:
             try:
                 # Usar timeout configurable
-                response = requests.head(f'http://{self.cam_ip}', 
-                                       proxies=proxy, 
+                response = self.session.head(f'http://{self.cam_ip}',
+                                       proxies=proxy,
                                        timeout=config.CAMERA_PORT_TIMEOUT)
                 response.raise_for_status()
                 return 100
@@ -74,7 +94,7 @@ class Camera:
         
         for attempt in range(max_attempts):
             try:
-                response = requests.get(img_ai_url, timeout=config.IMAGE_TIMEOUT)
+                response = self.session.get(img_ai_url, timeout=config.IMAGE_TIMEOUT)
                 status_code = response.status_code
                 
                 if status_code == 200:
@@ -92,25 +112,13 @@ class Camera:
 
 
     def Cam_Image(self):                    #---------- PROBADO ----------#
-        if self.brand == "AXIS":
-            cam_img = AxisCamImage(self.cam_ip, self.cam_user, self.cam_pass, 
-                                 self.proxy_ip, self.proxy_port, self.channel)
-             
-        elif self.brand == "HIKVISION":
-            cam_img = HikvCamImage(self.cam_ip, self.cam_user, self.cam_pass, 
-                                 self.proxy_ip, self.proxy_port)    
-        
-        elif self.brand == "VIVOTEK":
-            cam_img = VivoCamImage(self.cam_ip, self.cam_user, self.cam_pass, 
-                                 self.proxy_ip, self.proxy_port)
-            
-        elif self.brand == "DAHUA":
-            cam_img = DahuaCamImage(self.cam_ip, self.cam_user, self.cam_pass, 
-                                 self.proxy_ip, self.proxy_port)
-            
-        else:
+        handlers = CAMERA_HANDLERS.get(self.brand)
+        if handlers is None:
             return 620
-            
+        image_func, _ = handlers
+        cam_img = image_func(self.session, self.cam_ip, self.cam_user, self.cam_pass,
+                             self.proxy_ip, self.proxy_port, self.channel)
+
         if isinstance(cam_img, int):
             return cam_img
         else:
@@ -121,25 +129,13 @@ class Camera:
         
         
     def Cam_Config(self):                   #---------- PROBADO ----------#
-        if self.brand == "AXIS":
-            cam_conf = AxisCamConf(self.cam_ip, self.cam_user, self.cam_pass, 
-                                 self.proxy_ip, self.proxy_port)
-
-        elif self.brand == "HIKVISION":
-            cam_conf = HikvCamConf(self.cam_ip, self.cam_user, self.cam_pass, 
-                                 self.proxy_ip, self.proxy_port)
-            
-        elif self.brand == "VIVOTEK":
-            cam_conf = VivoCamConf(self.cam_ip, self.cam_user, self.cam_pass, 
-                                 self.proxy_ip, self.proxy_port)
-            
-        elif self.brand == "DAHUA":
-            cam_conf = DahuaCamConf(self.cam_ip, self.cam_user, self.cam_pass, 
-                                 self.proxy_ip, self.proxy_port)
-
-        else:
+        handlers = CAMERA_HANDLERS.get(self.brand)
+        if handlers is None:
             return 720
-        
+        _, config_func = handlers
+        cam_conf = config_func(self.session, self.cam_ip, self.cam_user, self.cam_pass,
+                               self.proxy_ip, self.proxy_port, self.channel)
+
         if isinstance(cam_conf, int):
                 return cam_conf
         else:

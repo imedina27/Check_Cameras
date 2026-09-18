@@ -3,7 +3,7 @@ import urllib.parse
 import config
 
 
-def DahuaCamImage(camera_ip, username, password, proxy_ip, proxy_port, channel=1):
+def DahuaCamImage(session, camera_ip, username, password, proxy_ip, proxy_port, channel=1):
     password = urllib.parse.unquote(password)
 
     img_urls = [
@@ -29,7 +29,7 @@ def DahuaCamImage(camera_ip, username, password, proxy_ip, proxy_port, channel=1
     try:
         for img_url in img_urls:
             try:
-                response = requests.get(img_url, headers=headers, auth=auth,
+                response = session.get(img_url, headers=headers, auth=auth,
                                         proxies=proxies, timeout=config.IMAGE_TIMEOUT)
                 response.raise_for_status()
                 return response.content
@@ -48,7 +48,7 @@ def DahuaCamImage(camera_ip, username, password, proxy_ip, proxy_port, channel=1
         return 690
 
 
-def DahuaCamConf(camera_ip, username, password, proxy_ip, proxy_port, channel=1):
+def DahuaCamConf(session, camera_ip, username, password, proxy_ip, proxy_port, channel=1):
     password = urllib.parse.unquote(password)
 
     headers = {
@@ -79,7 +79,7 @@ def DahuaCamConf(camera_ip, username, password, proxy_ip, proxy_port, channel=1)
     try:
         for get_conf in get_confs:
             url = f"http://{camera_ip}{get_conf}"
-            response = requests.get(url, headers=headers, auth=auth,
+            response = session.get(url, headers=headers, auth=auth,
                                     proxies=proxies, timeout=config.CONF_TIMEOUT)
             response.raise_for_status()
             parsed = dic_to_json(response.text)

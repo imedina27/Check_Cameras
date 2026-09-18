@@ -1,4 +1,3 @@
-import sys
 import argparse
 from check import CheckAll, CheckPlant, CheckServer
 
@@ -49,7 +48,4 @@ def main():                                 #---------- PROBADO ----------#
 
 
 if __name__ == "__main__":
-    # sys.argv = ["main.py", "-s", "colima01"]
-    sys.argv = ["main.py", "--plant", "all"]
-    # sys.argv = ["main.py", "--server", "QLYMSPROD03"]
     main()

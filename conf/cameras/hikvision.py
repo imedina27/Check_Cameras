@@ -2,9 +2,10 @@ import requests
 import xmltodict
 import urllib.parse
 import config
+import xml.parsers.expat
 
 
-def HikvCamImage(camera_ip, username, password, proxy_ip, proxy_port):
+def HikvCamImage(session, camera_ip, username, password, proxy_ip, proxy_port, channel=1):
     password = urllib.parse.unquote(password)
     
     img_urls = [
@@ -28,7 +29,7 @@ def HikvCamImage(camera_ip, username, password, proxy_ip, proxy_port):
     try:
         for img_url in img_urls:
             try:
-                response = requests.get(img_url, headers=headers, auth=auth,
+                response = session.get(img_url, headers=headers, auth=auth,
                                       proxies=proxies, timeout=config.IMAGE_TIMEOUT)
                 response.raise_for_status()
                 return response.content
@@ -47,7 +48,7 @@ def HikvCamImage(camera_ip, username, password, proxy_ip, proxy_port):
         return 690
     
 
-def HikvCamConf(camera_ip, username, password, proxy_ip, proxy_port):
+def HikvCamConf(session, camera_ip, username, password, proxy_ip, proxy_port, channel=1):
     # Decodificar la contraseña si contiene caracteres codificados como %40
     password = urllib.parse.unquote(password)
 
@@ -78,7 +79,7 @@ def HikvCamConf(camera_ip, username, password, proxy_ip, proxy_port):
             grl_url = f'http://{camera_ip}/ISAPI/{get_conf}'
             
             # Usar timeout configurable para cada petición de configuración
-            response = requests.get(grl_url, headers=headers, auth=auth,  
+            response = session.get(grl_url, headers=headers, auth=auth,
                                   proxies=proxies, timeout=config.CONF_TIMEOUT)
             response.raise_for_status()
             json_data = xml_to_json(response.text)
@@ -86,7 +87,11 @@ def HikvCamConf(camera_ip, username, password, proxy_ip, proxy_port):
     
     except requests.exceptions.RequestException as e:
         return 790
-    
+
+    except xml.parsers.expat.ExpatError as e:
+        print(f"[ERROR] Respuesta XML inválida de la cámara {camera_ip} en '{get_conf}': {e}")
+        return 790
+
     return json_conf
 
 

@@ -9,10 +9,12 @@ pyyaml = "*"
 requests = "*"
 xmltodict = "*"
 colorama = "*"
+psutil = "*"
 pylint = "*"
 pylint-celery = "*"
 
 [dev-packages]
+pytest = "*"
 
 [requires]
 python_version = "3.14"

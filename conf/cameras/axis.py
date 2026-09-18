@@ -3,7 +3,7 @@ import urllib.parse
 import config
 
 
-def AxisCamImage(camera_ip, username, password, proxy_ip, proxy_port, channel=1):
+def AxisCamImage(session, camera_ip, username, password, proxy_ip, proxy_port, channel=1):
     password = urllib.parse.unquote(password)
     
     img_urls = [
@@ -27,7 +27,7 @@ def AxisCamImage(camera_ip, username, password, proxy_ip, proxy_port, channel=1)
     try:
         for img_url in img_urls:
             try:
-                response = requests.get(img_url, headers=headers, auth=auth,
+                response = session.get(img_url, headers=headers, auth=auth,
                                       proxies=proxies, timeout=config.IMAGE_TIMEOUT)
                 response.raise_for_status()
                 return response.content
@@ -46,7 +46,7 @@ def AxisCamImage(camera_ip, username, password, proxy_ip, proxy_port, channel=1)
         return 690
 
 
-def AxisCamConf(camera_ip, username, password, proxy_ip, proxy_port):
+def AxisCamConf(session, camera_ip, username, password, proxy_ip, proxy_port, channel=1):
     # Decodificar la contraseña si contiene caracteres codificados como %40
     password = urllib.parse.unquote(password)
         
@@ -70,7 +70,7 @@ def AxisCamConf(camera_ip, username, password, proxy_ip, proxy_port):
     
     try:
         # Usar timeout configurable para descarga de configuración
-        response = requests.get(grl_url, headers=headers, auth=auth, 
+        response = session.get(grl_url, headers=headers, auth=auth,
                               proxies=proxies, timeout=config.IMAGE_TIMEOUT)
         response.raise_for_status()
         json_conf = dic_to_json(response.text)
