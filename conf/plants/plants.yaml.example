@@ -1,0 +1,40 @@
+# ============================================
+# Plantilla de configuración de plantas/servidores
+# ============================================
+# Copia este archivo dentro de conf/plants/ con el nombre que pusiste
+# en PLANTS_FILE (.env) — por ejemplo "plants.yaml" o
+# "plants_abinbev.yaml" — y ajusta los datos reales de tu red.
+#
+# Este archivo (plants.yaml.example) SÍ se sube al repositorio, como
+# plantilla. Los archivos reales (plants*.yaml) NUNCA se suben — están
+# en .gitignore porque traen direcciones IP internas de la red.
+#
+# Ver la sección "plants.yaml" del README.md para el detalle de cada campo.
+
+servers:
+  - serv_name: SERVIDOR_EJEMPLO_1
+    plant: NOMBRE_DE_LA_PLANTA
+    activate: 1                       # 1 = revisar este servidor, 0 = ignorarlo
+    cam_activate: false               # true = solo cámaras marcadas activas en el servicio IA; false = revisar todas
+    type: remote                      # remote = con dirección IP y proxy directo | tunnels = requiere túnel SSH para alcanzar el servidor
+    addresses:
+      local: 192.168.1.10             # IP en la red local de esa planta
+      cameras: 10.0.0.10               # IP en la red de cámaras de esa planta
+      zerotier: 192.168.192.100        # IP vía VPN Zerotier (se prueba primero)
+    proxy_port: 38533                 # puerto del proxy en el servidor remoto
+    ia_ports:                         # puertos donde corre el servicio IA (uno o varios)
+      - 12046
+      - 12047
+
+  - serv_name: SERVIDOR_EJEMPLO_2
+    plant: OTRA_PLANTA
+    activate: 0                       # ejemplo de servidor desactivado (no se revisa)
+    cam_activate: false
+    type: tunnels                     # ejemplo de servidor que requiere túnel SSH
+    addresses:
+      local: 10.10.10.10
+      cameras: none
+      zerotier: none
+    proxy_port: 38533
+    ia_ports:
+      - 8045
