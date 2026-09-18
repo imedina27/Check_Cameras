@@ -92,6 +92,17 @@ def name_host():                #---------- PROBADO ----------#
 
 # ssh -f -g -N -L 39533:localhost:38533 QLYMSPROD03
 
+def _write_pid_file(pid_file, pid):
+    # open(..., 'w') no crea carpetas intermedias: si el directorio del PID
+    # file no existe (ej. la carpeta 'tmp' nunca se creó a mano), truena con
+    # FileNotFoundError. Nos aseguramos de que exista antes de escribir.
+    directorio = os.path.dirname(pid_file)
+    if directorio:
+        os.makedirs(directorio, exist_ok=True)
+    with open(pid_file, 'w') as f:
+        f.write(str(pid))
+
+
 def create_tunnel(loc_port,dest_host,ssh_port,remote_server,px:bool,plant=None):
     if px:
         pid_file = config.PX_PID_FILE
@@ -120,8 +131,7 @@ def create_tunnel(loc_port,dest_host,ssh_port,remote_server,px:bool,plant=None):
                 # Encontrar y guardar el PID
                 tunnel_pid = find_tunnel_pid(loc_port)
                 if tunnel_pid:
-                    with open(pid_file, 'w') as f:
-                        f.write(str(tunnel_pid))
+                    _write_pid_file(pid_file, tunnel_pid)
                     log_processor(plant, remote_server, f"Túnel SSH creado exitosamente (PID: {tunnel_pid})")
                     return True
             return False
@@ -133,8 +143,7 @@ def create_tunnel(loc_port,dest_host,ssh_port,remote_server,px:bool,plant=None):
             tunnel_pid = find_tunnel_pid(loc_port)
             if tunnel_pid:
                 # Guardar el PID en un archivo
-                with open(pid_file, 'w') as f:
-                    f.write(str(tunnel_pid))
+                _write_pid_file(pid_file, tunnel_pid)
                 log_processor(plant, remote_server, f"Túnel SSH creado exitosamente (PID: {tunnel_pid}). Túnel activo al puerto {ssh_port}")
                 return True
             else:
@@ -151,8 +160,7 @@ def create_tunnel(loc_port,dest_host,ssh_port,remote_server,px:bool,plant=None):
             # Intentar encontrar y guardar el PID
             tunnel_pid = find_tunnel_pid(loc_port)
             if tunnel_pid:
-                with open(pid_file, 'w') as f:
-                    f.write(str(tunnel_pid))
+                _write_pid_file(pid_file, tunnel_pid)
                 return True
         return False
 
@@ -267,8 +275,7 @@ def close_tunnel(loc_port, px: bool, plant=None, serv_name=None, _retries: int =
             if new_pid:
                 log_processor(plant, serv_name, f"Encontrado nuevo PID: {new_pid}")
                 # Actualizar el PID en el archivo
-                with open(pid_file, 'w') as f:
-                    f.write(str(new_pid))
+                _write_pid_file(pid_file, new_pid)
                 # Intentar de nuevo con el nuevo PID, con límite de reintentos
                 if _retries < config.MAX_RETRIES:
                     return close_tunnel(loc_port, px, plant, serv_name, _retries + 1)
