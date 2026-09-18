@@ -11,11 +11,19 @@ class TestAxisDicToJson:
             "Brand": {"ProdNbr": "M3057"},
         }
 
-    def test_linea_con_igual_en_el_valor_se_pierde(self):
-        # Caso limite documentado: Axis usa split("=") y exige exactamente 2
-        # partes, asi que si el valor trae un "=" la linea se descarta entera.
+    def test_linea_con_igual_en_el_valor_si_se_conserva(self):
+        # Corregido: Axis usaba split("=") y perdia la linea completa si el
+        # valor traia un "=" (confirmado con datos reales: pasaba en las
+        # posiciones de preset de PTZ y perfiles de multicast). Ahora usa
+        # partition("="), igual que Dahua, y si conserva el valor completo.
         texto = "root.Algo.Valor=a=b\n"
-        assert axis_dic_to_json(texto) == {}
+        assert axis_dic_to_json(texto) == {"Algo": {"Valor": "a=b"}}
+
+    def test_valor_con_varios_signos_igual_ptz_preset(self):
+        # Caso real encontrado en produccion (posicion de preset de PTZ)
+        texto = "root.PTZ.Preset.P0.Position.P1.Data=pan=0.000000:tilt=0.000000:zoom=1.000000\n"
+        resultado = axis_dic_to_json(texto)
+        assert resultado["PTZ"]["Preset"]["P0"]["Position"]["P1"]["Data"] == "pan=0.000000:tilt=0.000000:zoom=1.000000"
 
     def test_texto_vacio(self):
         assert axis_dic_to_json("") == {}

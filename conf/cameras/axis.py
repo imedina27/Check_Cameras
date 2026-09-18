@@ -92,23 +92,30 @@ def AxisCamConf(session, camera_ip, username, password, proxy_ip, proxy_port, ch
 
 def dic_to_json(text):
     # Convierte un diccionario Plano separado por puntos en un json
-    
+
     config_dict = {}
 
     for line in text.split('\n'):
         line = line.strip()
-        key_value = line.split("=")
-        if len(key_value) == 2:
-            key = key_value[0].strip()
-            value = key_value[1].strip()
-            key_parts = key.split(".")[1:]  # Excluir "root"
-            current_dict = config_dict
+        if "=" not in line:
+            continue
+        # partition (no split) porque el VALOR puede traer su propio "="
+        # (ej. root.Network.RTP.R0.AlwaysMulticastProfile=videocodec=h264,
+        # o root.PTZ.Preset.P0.Position.P1.Data=pan=0:tilt=0:zoom=1) —
+        # con split("=") esas líneas se perdían enteras, en silencio.
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        key_parts = key.split(".")[1:]  # Excluir "root"
+        if not key_parts:
+            continue
+        current_dict = config_dict
 
-            for part in key_parts[:-1]:
-                if part not in current_dict:
-                    current_dict[part] = {}
-                current_dict = current_dict[part]
+        for part in key_parts[:-1]:
+            if part not in current_dict:
+                current_dict[part] = {}
+            current_dict = current_dict[part]
 
-            current_dict[key_parts[-1]] = value
-    
+        current_dict[key_parts[-1]] = value
+
     return config_dict
