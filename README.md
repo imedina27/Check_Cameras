@@ -49,6 +49,7 @@ Ver `.env.example` para la plantilla completa con todos los valores y sus coment
 | `MAX_CAMERA_RETRIES`, `CAMERA_PORT_TIMEOUT`, `PORT80_DELAY` | Reintentos/tiempos al revisar el puerto 80 de cada cámara. |
 | `MAX_AI_RETRIES`, `AI_IMAGE_TIMEOUT` | Reintentos/tiempo al pedir la imagen procesada por IA. |
 | `CONF_TIMEOUT` | Tiempo de espera al descargar la configuración de una cámara. |
+| `MAX_CONFIG_RETRIES`, `CONFIG_RETRY_DELAY` | Reintentos/tiempo de espera al descargar la configuración de una cámara si falla (mitiga fallas transitorias de conexión bajo concurrencia). |
 | `YAML_TIMEOUT` | Tiempo de espera al leer el YAML de cámaras del servicio IA. |
 | `IA_LOC_PORT`, `PX_LOC_PORT`, `IA_PID_FILE`, `PX_PID_FILE` | Solo aplican a servidores `type: tunnels` — puertos locales y archivos de PID de los túneles SSH. |
 | `MAX_RETRIES` | Reintentos al cerrar un túnel SSH. |

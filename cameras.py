@@ -133,8 +133,22 @@ class Camera:
         if handlers is None:
             return 720
         _, config_func = handlers
-        cam_conf = config_func(self.session, self.cam_ip, self.cam_user, self.cam_pass,
-                               self.proxy_ip, self.proxy_port, self.channel, self.plant, self.serv_name)
+
+        # Reintentar toda la descarga de configuración ante cualquier falla:
+        # a diferencia de Cam_Up/Cam_AI_Image, esta llamada no tenía reintentos,
+        # y es puramente lectura (GET), así que reintentar es seguro. Mitiga
+        # fallas transitorias de conexión bajo concurrencia (confirmado en
+        # producción: RemoteDisconnected en Hikvision, mucho más frecuente al
+        # revisar cámaras en paralelo que de forma secuencial).
+        max_retries = config.MAX_CONFIG_RETRIES
+        cam_conf = 790
+        for attempt in range(max_retries):
+            cam_conf = config_func(self.session, self.cam_ip, self.cam_user, self.cam_pass,
+                                   self.proxy_ip, self.proxy_port, self.channel, self.plant, self.serv_name)
+            if not isinstance(cam_conf, int):
+                break
+            if attempt < max_retries - 1:
+                time.sleep(config.CONFIG_RETRY_DELAY)
 
         if isinstance(cam_conf, int):
                 return cam_conf

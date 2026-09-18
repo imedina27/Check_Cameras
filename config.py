@@ -34,6 +34,12 @@ IMAGE_TIMEOUT = int(os.getenv('AI_IMAGE_TIMEOUT', 3))
 # Configuartion
 CONF_TIMEOUT = int(os.getenv('CONF_TIMEOUT', 3))
 
+# Reintentos al descargar la configuración de una cámara (Cam_Config) —
+# mitiga fallas transitorias de conexión bajo concurrencia (ej. RemoteDisconnected
+# en Hikvision cuando varias cámaras se revisan en paralelo a través del mismo proxy).
+MAX_CONFIG_RETRIES = int(os.getenv('MAX_CONFIG_RETRIES', 2))
+CONFIG_RETRY_DELAY = int(os.getenv('CONFIG_RETRY_DELAY', 1))
+
 # Timeouts para YAML
 YAML_TIMEOUT = int(os.getenv('YAML_TIMEOUT', 3))
 
