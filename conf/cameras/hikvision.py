@@ -74,6 +74,9 @@ def HikvCamConf(session, camera_ip, username, password, proxy_ip, proxy_port, ch
         'System/Network/interfaces/1',
         'Image/channels/1',
         'Streaming/channels/101/',
+        'System/time',
+        'Security/users',
+        'System/capabilities',
     ]
 
     json_conf = {}
