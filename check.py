@@ -93,7 +93,7 @@ def _process_camera(alias, cam, serv_name, plant, ai_port, proxy_ip, proxy_port)
 
     # Verificar el puerto 80 de la cámara
     cam_up = cam_host.Cam_Up()
-    log_processor(plant, serv_name, f"Camera: {alias} IP: {cam_ip}")
+    log_processor(plant, serv_name, f"{alias} IP: {cam_ip}")
     log_processor(plant, serv_name, cam_up, alias_tag)
 
     if cam_up == 100:
@@ -120,7 +120,6 @@ def _process_camera(alias, cam, serv_name, plant, ai_port, proxy_ip, proxy_port)
     camera_result['complete'] = len(camera_result['failures']) == 0
     elapsed = time.perf_counter() - inicio_camara
     log_camera_time(plant, serv_name, alias, elapsed)
-    log_processor(plant, serv_name, f"{alias}: {'='*60}")
     return camera_result
 
 

@@ -283,7 +283,7 @@ def log_camera_time(plant, server, alias, elapsed_seconds):                 #---
     log_file = os.path.join(result_dir, f"{server_name}.log")
 
     logger = _get_server_logger(log_file, plant_label)
-    mensaje = f"Tiempo de proceso: {alias}: {elapsed_seconds:.2f}s"
+    mensaje = f"{alias}: Tiempo de proceso {elapsed_seconds:.2f}s"
 
     if elapsed_seconds <= config.CAM_TIME_THRESHOLD:
         logger.info(mensaje)
