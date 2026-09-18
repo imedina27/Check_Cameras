@@ -64,7 +64,7 @@ def _CheckServerSafe(dat_server):
         return _new_server_result(dat_server, problem=f"Fallo inesperado: {e}")
 
 
-REQUIRED_SERVER_KEYS = ['serv_name', 'plant', 'cam_activate', 'type', 'addresses', 'proxy_port', 'ia_ports']
+REQUIRED_SERVER_KEYS = ['serv_name', 'plant', 'type', 'addresses', 'proxy_port', 'ia_ports']
 REQUIRED_ADDRESS_KEYS = ['local', 'cameras', 'zerotier']
 
 
@@ -89,7 +89,7 @@ def CheckServer(dat_server):                    #---------- PROBADO ----------#
     # Datos básicos
     serv_name = dat_server['serv_name']
     plant =  dat_server['plant']
-    cam_activate =dat_server['cam_activate']
+    cam_activate = dat_server.get('cam_activate', False)
     type = dat_server['type']
 
     # Direcciones

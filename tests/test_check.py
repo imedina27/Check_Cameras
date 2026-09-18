@@ -1,7 +1,7 @@
 import pytest
 
 import config
-from check import CheckServer
+from check import CheckServer, REQUIRED_SERVER_KEYS
 
 
 @pytest.fixture
@@ -17,8 +17,14 @@ def test_faltan_campos_requeridos(tmp_result_path):
     resultado = CheckServer(dat_server)
 
     assert resultado["problem"] is not None
-    assert "cam_activate" in resultado["problem"]
+    assert "type" in resultado["problem"]
     assert resultado["cameras"] == []
+
+
+def test_cam_activate_no_es_obligatorio():
+    # plants_abinbev.yaml real no trae 'cam_activate' en ningun servidor;
+    # no debe tratarse como campo obligatorio (antes si lo era, por error).
+    assert "cam_activate" not in REQUIRED_SERVER_KEYS
 
 
 def test_faltan_campos_de_addresses(tmp_result_path):
