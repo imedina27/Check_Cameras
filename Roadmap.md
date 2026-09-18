@@ -129,7 +129,7 @@ Puntos identificados sobre la marcha, sin una fase fija todavía. Se revisan pas
 
 Se hace al final de todo, una vez que el código ya no se va a seguir moviendo — así se documenta una sola vez el estado final, en vez de tener que reescribirlo cada vez que algo cambie mientras avanzamos.
 
-- [ ] **`README.md` del proyecto.** Documentar datos generales del programa. Por lo pronto: uso del programa (comandos de `main.py`) y pasos para agregar una marca de cámara nueva.
+- [x] **`README.md` del proyecto.** Incluye: requisitos previos, instalación, los dos entornos de ejecución, explicación completa de `.env` y `plants.yaml` (con tablas de cada campo), plantillas `.env.example` y `conf/plants/plants.yaml.example` (nombradas así — no `example.env`/`plants.example.yaml` — para no caer en los patrones del `.gitignore`, verificado con `git check-ignore`), uso del programa, procedimiento paso a paso, marcas soportadas y cómo agregar una nueva, qué resultados entrega, cómo leer el log, y cómo correr las pruebas. Plantillas validadas: el YAML parsea correcto con todos los campos requeridos, y las variables del `.env.example` coinciden exactamente con lo que lee `config.py` (sin faltantes ni sobras).
 
 ---
 
