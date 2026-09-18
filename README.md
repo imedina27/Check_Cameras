@@ -41,7 +41,7 @@ Cada entorno tiene su propio `.env` y su propio archivo de plantas (`PLANTS_FILE
 Ver `.env.example` para la plantilla completa con todos los valores y sus comentarios. Los grupos principales son:
 
 | Variable | Para qué sirve |
-|---|---|
+| --- | --- |
 | `LOCAL_HOST` | Nombre de esta máquina; el programa lo usa para detectar si el servidor a revisar es "este mismo servidor". |
 | `RESULT_PATH` | Carpeta raíz donde se guardan resultados (imágenes, JSON, logs, resumen). |
 | `PLANTS_FILE` | Qué archivo de `conf/plants/` cargar — distinto por entorno (ver arriba). |
@@ -60,7 +60,7 @@ Ver `.env.example` para la plantilla completa con todos los valores y sus coment
 Ver `conf/plants/plants.yaml.example` para la plantilla. Es una lista de servidores bajo la clave `servers`, cada uno con:
 
 | Campo | Para qué sirve |
-|---|---|
+| --- | --- |
 | `serv_name` | Nombre del servidor (debe coincidir con el hostname real si se ejecuta desde ahí, y con el nombre usado en `ssh` para los túneles). |
 | `plant` | Nombre de la planta a la que pertenece este servidor. |
 | `activate` | `1` para revisar este servidor, `0` para ignorarlo sin borrarlo del archivo. |
@@ -112,7 +112,7 @@ Axis, Hikvision, Vivotek y Dahua — cada una con su propio módulo en `conf/cam
 
 Todo queda bajo `RESULT_PATH`, organizado por fecha, planta y servidor:
 
-```
+```text
 RESULT_PATH/
   09- Septiembre/
     170926/                          <- fecha (ddmmaa)
