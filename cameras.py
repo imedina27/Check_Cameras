@@ -117,7 +117,7 @@ class Camera:
             return 620
         image_func, _ = handlers
         cam_img = image_func(self.session, self.cam_ip, self.cam_user, self.cam_pass,
-                             self.proxy_ip, self.proxy_port, self.channel)
+                             self.proxy_ip, self.proxy_port, self.channel, self.plant, self.serv_name)
 
         if isinstance(cam_img, int):
             return cam_img
@@ -134,7 +134,7 @@ class Camera:
             return 720
         _, config_func = handlers
         cam_conf = config_func(self.session, self.cam_ip, self.cam_user, self.cam_pass,
-                               self.proxy_ip, self.proxy_port, self.channel)
+                               self.proxy_ip, self.proxy_port, self.channel, self.plant, self.serv_name)
 
         if isinstance(cam_conf, int):
                 return cam_conf

@@ -1,9 +1,10 @@
 import requests
 import urllib.parse
 import config
+from file_processor import log_processor
 
 
-def DahuaCamImage(session, camera_ip, username, password, proxy_ip, proxy_port, channel=1):
+def DahuaCamImage(session, camera_ip, username, password, proxy_ip, proxy_port, channel=1, plant=None, server=None):
     password = urllib.parse.unquote(password)
 
     img_urls = [
@@ -39,16 +40,19 @@ def DahuaCamImage(session, camera_ip, username, password, proxy_ip, proxy_port, 
         return 640
 
     except requests.exceptions.Timeout:
+        log_processor(plant, server, f"[ERROR] {camera_ip}: timeout al descargar imagen")
         return 611
 
-    except requests.exceptions.ConnectionError:
+    except requests.exceptions.ConnectionError as e:
+        log_processor(plant, server, f"[ERROR] {camera_ip}: error de conexión al descargar imagen: {e}")
         return 620
 
-    except requests.exceptions.RequestException:
+    except requests.exceptions.RequestException as e:
+        log_processor(plant, server, f"[ERROR] {camera_ip}: error inesperado al descargar imagen: {e}")
         return 690
 
 
-def DahuaCamConf(session, camera_ip, username, password, proxy_ip, proxy_port, channel=1):
+def DahuaCamConf(session, camera_ip, username, password, proxy_ip, proxy_port, channel=1, plant=None, server=None):
     password = urllib.parse.unquote(password)
 
     headers = {
@@ -86,6 +90,7 @@ def DahuaCamConf(session, camera_ip, username, password, proxy_ip, proxy_port, c
             json_conf.update(parsed)
 
     except requests.exceptions.RequestException as e:
+        log_processor(plant, server, f"[ERROR] {camera_ip}: error al descargar configuración en '{get_conf}': {e}")
         return 790
 
     return json_conf
