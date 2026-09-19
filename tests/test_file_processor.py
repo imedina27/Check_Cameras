@@ -1,4 +1,6 @@
-from file_processor import resolve_brand, InfoCam_url, mask_credentials, status_text, is_success_code, _status_parts
+from file_processor import resolve_brand, InfoCam_url, mask_credentials, status_text, is_success_code, _status_parts, write_summary
+import file_processor
+import config
 
 
 class TestResolveBrand:
@@ -110,3 +112,49 @@ class TestStatusHelpers:
         descripcion, codigo = _status_parts(701)
         assert descripcion == "Unknown status code"
         assert codigo == "701"
+
+
+def _cam(complete):
+    return {"alias": "A1", "ip": "1.2.3.4", "failures": [] if complete else ["Puerto 80: Timed out [111]"], "complete": complete}
+
+
+class TestWriteSummaryDetallePorServidor:
+    # DETALLE POR SERVIDOR debe listar TODOS los servidores, uno por linea,
+    # con estado explicito (OK/CON FALLAS/SIN CONEXION) — a diferencia del
+    # resto del resumen, que solo lista por excepcion y no distingue "todo
+    # bien" de "nunca se reviso" (hallazgo real del usuario).
+    def _run(self, tmp_path, monkeypatch, server_results):
+        monkeypatch.setattr(config, "RESULT_PATH", str(tmp_path))
+        file_processor._dirs_ensured.clear()
+        write_summary(server_results)
+        [resumen] = list(tmp_path.rglob("resumen_*.log"))
+        return resumen.read_text(encoding="utf-8")
+
+    def test_servidor_ok_sin_ninguna_falla(self, tmp_path, monkeypatch):
+        server_results = [
+            {"serv_name": "SRV1", "plant": "PLANTA1", "problem": None, "cameras": [_cam(True), _cam(True)]},
+        ]
+        texto = self._run(tmp_path, monkeypatch, server_results)
+        assert "[OK]           PLANTA1      SRV1           2/2 cámaras completas" in texto
+
+    def test_servidor_con_al_menos_una_falla(self, tmp_path, monkeypatch):
+        server_results = [
+            {"serv_name": "SRV1", "plant": "PLANTA1", "problem": None, "cameras": [_cam(True), _cam(False)]},
+        ]
+        texto = self._run(tmp_path, monkeypatch, server_results)
+        assert "[CON FALLAS]   PLANTA1      SRV1           1/2 cámaras completas" in texto
+
+    def test_servidor_sin_conexion_no_desaparece(self, tmp_path, monkeypatch):
+        server_results = [
+            {"serv_name": "SRV1", "plant": "PLANTA1", "problem": "Sin IP disponible (zerotier/local/cámaras)", "cameras": []},
+        ]
+        texto = self._run(tmp_path, monkeypatch, server_results)
+        assert "[SIN CONEXIÓN] PLANTA1      SRV1           Sin IP disponible (zerotier/local/cámaras)" in texto
+
+    def test_todos_los_servidores_aparecen_aunque_esten_perfectos(self, tmp_path, monkeypatch):
+        server_results = [
+            {"serv_name": "SRV1", "plant": "PLANTA1", "problem": None, "cameras": [_cam(True)]},
+            {"serv_name": "SRV2", "plant": "PLANTA2", "problem": None, "cameras": [_cam(True)]},
+        ]
+        texto = self._run(tmp_path, monkeypatch, server_results)
+        assert texto.count("[OK]") == 2

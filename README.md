@@ -126,7 +126,14 @@ RESULT_PATH/
           alias_camara.json          <- configuración de la cámara
 ```
 
-El **resumen** (`resumen_dd-mm-aaaa.log`) es el primer lugar para revisar una corrida: cuántos servidores/cámaras quedaron bien, y el detalle de qué cámara falló y en qué paso, agrupado por planta. Solo se genera cuando se revisa más de un servidor (`--plant all`, o una planta con varios servidores) — para un solo servidor, su propio log ya es suficiente.
+El **resumen** (`resumen_dd-mm-aaaa.log`) es el primer lugar para revisar una corrida. Solo se genera cuando se revisa más de un servidor (`--plant all`, o una planta con varios servidores) — para un solo servidor, su propio log ya es suficiente. Tiene tres partes:
+
+1. Totales generales (servidores/cámaras revisados, completos, con falla).
+2. **`DETALLE POR SERVIDOR`**: una línea por cada servidor revisado, siempre presente — a diferencia del resto del resumen, que solo lista excepciones, aquí ningún servidor puede "desaparecer" por estar perfecto ni por estar caído:
+   - `[OK]` — todas sus cámaras activas completaron sin ningún error.
+   - `[CON FALLAS]` — al menos una cámara tuvo algún error (el número indica cuántas de cuántas completaron).
+   - `[SIN CONEXIÓN]` — el servidor mismo nunca respondió, no se revisó ninguna cámara.
+3. `DETALLE POR PLANTA - CÁMARAS CON FALLAS`: qué cámara falló y en qué paso, agrupado por planta (solo aparece si hubo al menos una falla).
 
 ## Cómo leer el log
 

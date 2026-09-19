@@ -444,10 +444,24 @@ def write_summary(server_results):                                         #----
     lines.append(f"Cámaras revisadas: {len(all_cameras)}")
     lines.append(f"  - Completas (imagen IA + imagen + config): {len(cameras_ok)}")
     lines.append(f"  - Con al menos una falla: {len(cameras_failed)}")
-    if servers_problem:
-        lines.append("Servidores con problemas:")
-        for r in servers_problem:
-            lines.append(f"  - {r['serv_name']} ({r['plant']}): {r['problem']}")
+    lines.append("=" * 42)
+
+    # Una línea por servidor, siempre presente (a diferencia de "Servidores con
+    # problemas" y de "DETALLE POR PLANTA" de abajo, que solo listan por
+    # excepción): un servidor caído o uno perfecto se veían igual de ausentes,
+    # y no había forma de distinguir "todo bien" de "nunca se revisó".
+    lines.append("")
+    lines.append("DETALLE POR SERVIDOR")
+    for r in server_results:
+        if r["problem"] is not None:
+            estado = "[SIN CONEXIÓN]"
+            detalle = r["problem"]
+        else:
+            total = len(r["cameras"])
+            completas = sum(1 for cam in r["cameras"] if cam["complete"])
+            estado = "[OK]" if completas == total else "[CON FALLAS]"
+            detalle = f"{completas}/{total} cámaras completas"
+        lines.append(f"  {estado:<15}{r['plant']:<13}{r['serv_name']:<15}{detalle}")
     lines.append("=" * 42)
 
     if cameras_failed:
