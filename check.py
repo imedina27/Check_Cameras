@@ -94,24 +94,24 @@ def _process_camera(alias, cam, serv_name, plant, ai_port, proxy_ip, proxy_port)
     # Verificar el puerto 80 de la cámara
     cam_up = cam_host.Cam_Up()
     log_processor(plant, serv_name, f"{alias} IP: {cam_ip}")
-    log_processor(plant, serv_name, cam_up, alias_tag)
+    log_processor(plant, serv_name, cam_up, alias_tag, proceso="Puerto 80")
 
     if cam_up == 100:
         # Descargar la imagen de la IA
         ia_image = cam_host.Cam_AI_Image()
-        log_processor(plant, serv_name, ia_image, alias_tag)
+        log_processor(plant, serv_name, ia_image, alias_tag, proceso="Imagen IA")
         if not is_success_code(ia_image):
             camera_result['failures'].append(f"Imagen IA: {_clean_status(ia_image)}")
 
         # Descargar la imagen de la cámara
         cam_image = cam_host.Cam_Image()
-        log_processor(plant, serv_name, cam_image, alias_tag)
+        log_processor(plant, serv_name, cam_image, alias_tag, proceso="Imagen cámara")
         if not is_success_code(cam_image):
             camera_result['failures'].append(f"Imagen cámara: {_clean_status(cam_image)}")
 
         # Descargar la configuración de la cámara
         cam_conf = cam_host.Cam_Config()
-        log_processor(plant, serv_name, cam_conf, alias_tag)
+        log_processor(plant, serv_name, cam_conf, alias_tag, proceso="Configuración")
         if not is_success_code(cam_conf):
             camera_result['failures'].append(f"Configuración: {_clean_status(cam_conf)}")
     else:

@@ -1,4 +1,4 @@
-from file_processor import resolve_brand, InfoCam_url, mask_credentials, status_text, is_success_code
+from file_processor import resolve_brand, InfoCam_url, mask_credentials, status_text, is_success_code, _status_parts
 
 
 class TestResolveBrand:
@@ -92,3 +92,21 @@ class TestStatusHelpers:
     def test_status_text_codigo_desconocido(self):
         texto = status_text(999999)
         assert "999999" in texto
+
+    def test_status_parts_separa_descripcion_y_codigo_en_exito(self):
+        descripcion, codigo = _status_parts(100)
+        assert descripcion == "Port 80"
+        assert codigo == "200"
+
+    def test_status_parts_separa_descripcion_y_codigo_en_error(self):
+        # El proceso y el codigo interno estan desacoplados: la descripcion
+        # no lleva el nombre del proceso, para poder anteponer un campo
+        # PROCESO explicito en el log sin duplicar informacion.
+        descripcion, codigo = _status_parts(111)
+        assert descripcion == "Timed out"
+        assert codigo == "111"
+
+    def test_status_parts_codigo_no_registrado_en_el_catalogo(self):
+        descripcion, codigo = _status_parts(701)
+        assert descripcion == "Unknown status code"
+        assert codigo == "701"

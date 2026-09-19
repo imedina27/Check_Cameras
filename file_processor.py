@@ -229,7 +229,7 @@ def _get_server_logger(log_file, plant_label):
         return logger
 
 
-def log_processor(plant, server, status_code, prefix=""):                   #---------- PROBADO ----------#
+def log_processor(plant, server, status_code, prefix="", proceso=None):     #---------- PROBADO ----------#
     result_dir = dirs_path(plant, server)
     plant_label = plant if plant is not None else "error"
     server_name = server.upper() if server else plant_label.upper()
@@ -253,7 +253,20 @@ def log_processor(plant, server, status_code, prefix=""):                   #---
         return
 
     raw = config.STATUS_MESSAGES.get(status_code, f"Unknown status code [{status_code}]")
-    message = prefix + status_text(status_code)
+
+    if proceso:
+        # Formato [ALIAS: PROCESO  DESCRIPCIÓN  [CODIGO]] — el proceso queda
+        # explícito en la línea (antes solo se sabía la cámara, no cuál de
+        # los 4 pasos falló, ya que varios códigos de error se comparten
+        # entre procesos, ej. 611/711 son "Timed out" tanto en Imagen como
+        # en Configuración).
+        descripcion, codigo = _status_parts(status_code)
+        if raw.startswith("[SUCCESS]"):
+            descripcion = "OK"
+        message = f"{prefix}{proceso:<16}{descripcion:<20}[{codigo}]"
+    else:
+        message = prefix + status_text(status_code)
+
     if raw.startswith("[WARNING]"):
         logger.warning(message)
     elif raw.startswith("[ERROR]"):
@@ -266,6 +279,16 @@ def status_text(status_code):                                              #----
     """Texto legible de un status_code, sin el prefijo [SUCCESS]/[WARNING]/[ERROR]."""
     raw = config.STATUS_MESSAGES.get(status_code, f"Unknown status code [{status_code}]")
     return re.sub(r"^\[(SUCCESS|WARNING|ERROR)\]\s*", "", raw).strip()
+
+
+def _status_parts(status_code):                                            #---------- PROBADO ----------#
+    """(descripción, código) de un status_code, separando el texto del
+    número entre corchetes — para armar líneas con el proceso explícito."""
+    texto = status_text(status_code)
+    match = re.match(r"^(.*?)\s*\[(\d+)\]$", texto)
+    if match:
+        return match.group(1).strip(), match.group(2)
+    return texto, str(status_code)
 
 
 def is_success_code(status_code):                                          #---------- PROBADO ----------#

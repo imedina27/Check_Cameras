@@ -85,7 +85,7 @@ def VivoCamConf(session, camera_ip, username, password, proxy_ip, proxy_port, ch
     
     except requests.exceptions.Timeout:
         log_processor(plant, server, f"[ERROR] {camera_ip}: timeout al descargar configuración")
-        return 701
+        return 711
 
     except requests.exceptions.RequestException as e:
         log_processor(plant, server, f"[ERROR] {camera_ip}: error al descargar configuración: {e}")
