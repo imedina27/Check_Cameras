@@ -138,6 +138,16 @@ El **resumen** (`resumen_dd-mm-aaaa.log`) es el primer lugar para revisar una co
 
 Tanto el orden de `DETALLE POR SERVIDOR` como el de las plantas/servidores en `DETALLE POR PLANTA` siguen la estrategia configurada en `LOG_SORT_STRATEGY`.
 
+### Agregar una estrategia de orden nueva (para un cliente con otra convención de nombres)
+
+Hoy existen dos estrategias en `sort_strategies.py`: `alphabetical` (por nombre completo) y `numeric_suffix` (por el número al final del nombre del servidor). Si un cliente nuevo necesita un criterio distinto:
+
+1. Escribir una función en `sort_strategies.py` que reciba `serv_name` y devuelva una clave de orden (ver `_numeric_suffix_key`/`_alphabetical_key` como ejemplo).
+2. Agregarla al diccionario `SORT_STRATEGIES` con un nombre corto.
+3. Poner ese nombre en `LOG_SORT_STRATEGY` en el `.env` de ese cliente/entorno.
+
+No hace falta tocar `file_processor.py` ni ningún otro archivo — `write_summary()` ya usa la estrategia que esté configurada.
+
 ## Cómo leer el log
 
 Cada línea sigue el patrón `[hora] [nivel] alias: proceso  descripción  [código]` (el nombre del proceso — `Puerto 80`, `Imagen IA`, `Imagen cámara`, `Configuración` — siempre queda explícito, no solo el código), coloreado según el nivel:
@@ -154,4 +164,4 @@ El log de cada servidor se escribe en vivo mientras corre (así queda un rastro 
 pipenv run pytest
 ```
 
-Cubre funciones puras (sin red): detección de marca, extracción de credenciales de una URL, parseo de configuración de cada marca, clasificación de códigos de estado, y validación de campos requeridos en `plants.yaml`.
+Cubre funciones puras (sin red): detección de marca, extracción de credenciales de una URL, parseo de configuración de cada marca, clasificación de códigos de estado, validación de campos requeridos en `plants.yaml`, reintentos de `Cam_Config()`, verificación de que un túnel SSH apunte al destino correcto, y el orden/contenido del resumen (`DETALLE POR SERVIDOR`/`DETALLE POR PLANTA`, estrategias de `sort_strategies.py`).
