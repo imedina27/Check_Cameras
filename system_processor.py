@@ -103,11 +103,42 @@ def _write_pid_file(pid_file, pid):
         f.write(str(pid))
 
 
+def _tunnel_matches_destino(pid, loc_port, dest_host, ssh_port, remote_server):
+    # Un proceso escuchando en loc_port no basta: puede ser un túnel viejo
+    # (de otro servidor, o huérfano de una corrida anterior interrumpida)
+    # que quedó pegado a este mismo puerto local compartido. Confirmamos
+    # que su línea de comando sea realmente el forward que pedimos, antes
+    # de confiar en él — si no, terminaríamos leyendo datos de otro servidor
+    # en silencio (bug real encontrado en producción: QLYMSPROD02 leyó las
+    # cámaras de QLYMSPROD04 por esta causa).
+    try:
+        cmdline = ' '.join(psutil.Process(pid).cmdline())
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return False
+    forward = f"-L {loc_port}:{dest_host}:{ssh_port}"
+    return forward in cmdline and remote_server in cmdline
+
+
+def _find_verified_tunnel_pid(loc_port, dest_host, ssh_port, remote_server):
+    pid = find_tunnel_pid(loc_port)
+    if pid and _tunnel_matches_destino(pid, loc_port, dest_host, ssh_port, remote_server):
+        return pid
+    return None
+
+
 def create_tunnel(loc_port,dest_host,ssh_port,remote_server,px:bool,plant=None):
     if px:
         pid_file = config.PX_PID_FILE
     else:
         pid_file = config.IA_PID_FILE
+
+    # Asegurar que el puerto local quede libre antes de crear el túnel nuevo.
+    # Si algo ya está escuchando ahí (túnel huérfano de una corrida anterior
+    # interrumpida, o de un servidor previo que no cerró bien su túnel), no
+    # debe confundirse silenciosamente con el túnel que estamos por crear.
+    if check_tunnel_status(loc_port):
+        log_processor(plant, remote_server, f"[ERROR] El puerto {loc_port} ya tenía un túnel activo antes de crear este (posible túnel huérfano). Cerrándolo primero.")
+        alternative_close(loc_port)
 
     # Comando SSH para crear el túnel
     ssh_command = ["ssh", "-f", "-g", "-N", "-L",
@@ -126,42 +157,38 @@ def create_tunnel(loc_port,dest_host,ssh_port,remote_server,px:bool,plant=None):
             log_processor(plant, remote_server, f"[ERROR] Error al crear el túnel SSH en {remote_server}. Código de salida: {result.returncode}. Mensaje: {result.stderr}")
 
             # Aun así verificamos si el túnel se creó
-            if check_tunnel_status(loc_port):
+            tunnel_pid = _find_verified_tunnel_pid(loc_port, dest_host, ssh_port, remote_server)
+            if tunnel_pid:
                 log_processor(plant, remote_server, f"A pesar del error, el túnel parece estar activo en puerto {loc_port}")
-                # Encontrar y guardar el PID
-                tunnel_pid = find_tunnel_pid(loc_port)
-                if tunnel_pid:
-                    _write_pid_file(pid_file, tunnel_pid)
-                    log_processor(plant, remote_server, f"Túnel SSH creado exitosamente (PID: {tunnel_pid})")
-                    return True
+                _write_pid_file(pid_file, tunnel_pid)
+                log_processor(plant, remote_server, f"Túnel SSH creado exitosamente (PID: {tunnel_pid})")
+                return True
             return False
 
         # Verificar que el túnel esté activo
         time.sleep(1)  # Dar tiempo para que el túnel se establezca
         if check_tunnel_status(loc_port):
-            # Encontrar el PID del proceso SSH
-            tunnel_pid = find_tunnel_pid(loc_port)
+            # Encontrar el PID del proceso SSH y confirmar que es el túnel que pedimos
+            tunnel_pid = _find_verified_tunnel_pid(loc_port, dest_host, ssh_port, remote_server)
             if tunnel_pid:
                 # Guardar el PID en un archivo
                 _write_pid_file(pid_file, tunnel_pid)
                 log_processor(plant, remote_server, f"Túnel SSH creado exitosamente (PID: {tunnel_pid}). Túnel activo al puerto {ssh_port}")
                 return True
             else:
-                log_processor(plant, remote_server, "[ERROR] El túnel está activo pero no se pudo encontrar el PID.")
-                return True  # Devolvemos True porque el túnel sí se creó
+                log_processor(plant, remote_server, f"[ERROR] Hay algo escuchando en el puerto {loc_port}, pero no es el túnel esperado hacia {remote_server}. Abortando para no leer datos de otro servidor.")
+                return False
         else:
             log_processor(plant, remote_server, f"[ERROR] Error al crear el túnel SSH. No se detecta actividad en el puerto {loc_port}")
             return False
     except Exception as e:
         log_processor(plant, remote_server, f"[ERROR] Error al crear el túnel SSH: {e}")
         # Aun así verificamos si el túnel se creó
-        if check_tunnel_status(loc_port):
+        tunnel_pid = _find_verified_tunnel_pid(loc_port, dest_host, ssh_port, remote_server)
+        if tunnel_pid:
             log_processor(plant, remote_server, f"A pesar del error, el túnel parece estar activo en puerto {loc_port}")
-            # Intentar encontrar y guardar el PID
-            tunnel_pid = find_tunnel_pid(loc_port)
-            if tunnel_pid:
-                _write_pid_file(pid_file, tunnel_pid)
-                return True
+            _write_pid_file(pid_file, tunnel_pid)
+            return True
         return False
 
 
