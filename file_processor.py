@@ -1,5 +1,6 @@
 from colorama import init, Fore, Style
 from datetime import datetime
+from sort_strategies import get_sort_key
 import requests
 import logging
 import config
@@ -229,11 +230,16 @@ def _get_server_logger(log_file, plant_label):
         return logger
 
 
-def log_processor(plant, server, status_code, prefix="", proceso=None):     #---------- PROBADO ----------#
+def _server_log_path(plant, server):
     result_dir = dirs_path(plant, server)
     plant_label = plant if plant is not None else "error"
     server_name = server.upper() if server else plant_label.upper()
-    log_file = os.path.join(result_dir, f"{server_name}.log")
+    return os.path.join(result_dir, f"{server_name}.log")
+
+
+def log_processor(plant, server, status_code, prefix="", proceso=None):     #---------- PROBADO ----------#
+    plant_label = plant if plant is not None else "error"
+    log_file = _server_log_path(plant, server)
 
     logger = _get_server_logger(log_file, plant_label)
 
@@ -300,10 +306,8 @@ def log_camera_time(plant, server, alias, elapsed_seconds):                 #---
     Cam_AI_Image + Cam_Image + Cam_Config): verde si quedó dentro de
     config.CAM_TIME_THRESHOLD, amarillo si lo excedió. Es solo visibilidad,
     no cancela ni omite nada."""
-    result_dir = dirs_path(plant, server)
     plant_label = plant if plant is not None else "error"
-    server_name = server.upper() if server else plant_label.upper()
-    log_file = os.path.join(result_dir, f"{server_name}.log")
+    log_file = _server_log_path(plant, server)
 
     logger = _get_server_logger(log_file, plant_label)
     mensaje = f"{alias}: Tiempo de proceso {elapsed_seconds:.2f}s"
@@ -312,6 +316,106 @@ def log_camera_time(plant, server, alias, elapsed_seconds):                 #---
         logger.info(mensaje)
     else:
         logger.warning(mensaje)
+
+
+def _format_log_line(hora, nivel, texto):
+    return f"[{hora}] {nivel:<7} {texto}"
+
+
+def _render_camera_block(camera, alias_width):
+    """Líneas ya formateadas de una cámara (IP, Puerto 80, Imagen IA, Imagen
+    cámara, Configuración, Tiempo de proceso) en ese orden fijo, con el
+    alias tabulado a alias_width para que las columnas queden alineadas
+    junto a las demás cámaras del mismo servidor."""
+    alias = camera["alias"]
+    hora_ip = camera.get("hora_ip") or datetime.now().strftime("%H:%M:%S")
+    lines = [_format_log_line(hora_ip, "INFO", f"{alias} IP: {camera['ip']}")]
+
+    alias_col = f"{alias}:".ljust(alias_width + 1)
+    for hora, proceso, status_code in camera.get("steps", []):
+        raw = config.STATUS_MESSAGES.get(status_code, f"Unknown status code [{status_code}]")
+        descripcion, codigo = _status_parts(status_code)
+        if raw.startswith("[SUCCESS]"):
+            descripcion = "OK"
+        if raw.startswith("[ERROR]"):
+            nivel = "ERROR"
+        elif raw.startswith("[WARNING]"):
+            nivel = "WARNING"
+        else:
+            nivel = "INFO"
+        texto = f"{alias_col} {proceso:<16}{descripcion:<20}[{codigo}]"
+        lines.append(_format_log_line(hora, nivel, texto))
+
+    elapsed = camera.get("elapsed")
+    hora_cierre = camera.get("hora_tiempo") or hora_ip
+    if elapsed is not None:
+        nivel_tiempo = "WARNING" if elapsed > config.CAM_TIME_THRESHOLD else "INFO"
+        lines.append(_format_log_line(hora_cierre, nivel_tiempo, f"{alias_col} Tiempo de proceso {elapsed:.2f}s"))
+
+    lines.append(_format_log_line(hora_cierre, "INFO", "=" * 60))
+    lines.append("")
+    return lines
+
+
+def _render_camera_section(camera_results):
+    """Bloque de cámaras de un servidor, ordenado alfabéticamente por alias
+    (cada cámara en un bloque contiguo, no intercalada con las demás como
+    pasa en vivo por correr en paralelo)."""
+    if not camera_results:
+        return []
+    ordenadas = sorted(camera_results, key=lambda c: c["alias"])
+    alias_width = max(len(c["alias"]) for c in ordenadas)
+    lines = []
+    for camera in ordenadas:
+        lines.extend(_render_camera_block(camera, alias_width))
+    return lines
+
+
+def checkpoint_server_log(plant, server):
+    """Posición actual (bytes) del log de este servidor, justo antes de
+    empezar a revisar cámaras — para que replace_camera_section() pueda
+    recortar de vuelta a este punto y reemplazar solo esa sección, sin
+    tocar el encabezado/túneles/YAML que ya se escribieron antes."""
+    log_file = _server_log_path(plant, server)
+    plant_label = plant if plant is not None else "error"
+    logger = _get_server_logger(log_file, plant_label)
+    for handler in logger.handlers:
+        if isinstance(handler, logging.FileHandler):
+            handler.acquire()
+            try:
+                handler.flush()
+                return handler.stream.tell()
+            finally:
+                handler.release()
+    return None
+
+
+def replace_camera_section(plant, server, checkpoint, camera_results):
+    """Recorta el log de este servidor de vuelta al punto marcado por
+    checkpoint_server_log() y escribe en su lugar el bloque de cámaras ya
+    ordenado alfabéticamente y tabulado — reemplaza las líneas que se
+    escribieron en vivo mientras las cámaras corrían en paralelo
+    (intercaladas entre sí, sin orden fijo) por una versión limpia, una
+    cámara completa a la vez."""
+    if checkpoint is None:
+        return
+    log_file = _server_log_path(plant, server)
+    plant_label = plant if plant is not None else "error"
+    logger = _get_server_logger(log_file, plant_label)
+
+    contenido = "".join(line + "\n" for line in _render_camera_section(camera_results))
+
+    for handler in logger.handlers:
+        if isinstance(handler, logging.FileHandler):
+            handler.acquire()
+            try:
+                handler.flush()
+                handler.stream.seek(checkpoint)
+                handler.stream.truncate()
+                handler.stream.write(contenido)
+                handler.flush()
+            finally:
+                handler.release()
 
 
 def dirs_path(plant=None, server=None):                                     #---------- PROBADO ----------#
@@ -420,6 +524,22 @@ def save_json(cam_json, plant, serv_name, cam_name):                        #---
         return 900
 
 
+# Orden de prioridad de los tipos de falla dentro de DETALLE POR PLANTA —
+# coincide con el orden real de los 4 pasos de Cam_Config (ver check.py).
+FAILURE_TYPE_PRIORITY = ["Puerto 80", "Imagen IA", "Imagen cámara", "Configuración"]
+
+
+def _failure_sort_key(cam):
+    """(prioridad del primer tipo de falla, alias) — una cámara con varias
+    fallas a la vez (ej. Imagen IA + Configuración) se ordena por la más
+    temprana de sus fallas en FAILURE_TYPE_PRIORITY."""
+    tipos_presentes = {f.split(":", 1)[0].strip() for f in cam["failures"]}
+    for prioridad, tipo in enumerate(FAILURE_TYPE_PRIORITY):
+        if tipo in tipos_presentes:
+            return (prioridad, cam["alias"])
+    return (len(FAILURE_TYPE_PRIORITY), cam["alias"])
+
+
 def write_summary(server_results):                                         #---------- PROBADO ----------#
     """Genera el resumen de una corrida con varios servidores (--plant all o
     CheckPlant con varios servidores encontrados): totales de servidores/
@@ -428,6 +548,7 @@ def write_summary(server_results):                                         #----
     day_dir = dirs_path()
     date_str = datetime.now().strftime("%d-%m-%Y")
     summary_file = os.path.join(day_dir, f"resumen_{date_str}.log")
+    sort_key = get_sort_key(config.LOG_SORT_STRATEGY)
 
     servers_ok = [r for r in server_results if r["problem"] is None]
     servers_problem = [r for r in server_results if r["problem"] is not None]
@@ -452,7 +573,7 @@ def write_summary(server_results):                                         #----
     # y no había forma de distinguir "todo bien" de "nunca se revisó".
     lines.append("")
     lines.append("DETALLE POR SERVIDOR")
-    for r in server_results:
+    for r in sorted(server_results, key=lambda r: sort_key(r["serv_name"])):
         if r["problem"] is not None:
             estado = "[SIN CONEXIÓN]"
             detalle = r["problem"]
@@ -467,20 +588,31 @@ def write_summary(server_results):                                         #----
     if cameras_failed:
         lines.append("")
         lines.append("DETALLE POR PLANTA - CÁMARAS CON FALLAS")
-        by_plant = {}
+
+        # Un grupo por servidor con al menos una cámara fallida (no por planta:
+        # una planta con 2 servidores necesita mostrarlos por separado).
+        grupos = []
         for r in server_results:
-            for cam in r["cameras"]:
-                if not cam["complete"]:
-                    by_plant.setdefault(r["plant"], []).append((r["serv_name"], cam))
-        for plant_name in sorted(by_plant):
-            lines.append(f"{plant_name}:")
-            entries = by_plant[plant_name]
+            fallidas = [cam for cam in r["cameras"] if not cam["complete"]]
+            if fallidas:
+                fallidas.sort(key=_failure_sort_key)
+                grupos.append((r["plant"], r["serv_name"], fallidas))
+        grupos.sort(key=lambda g: sort_key(g[1]))
 
-            # Alinear columnas dentro de cada planta según el nombre/IP más largo
-            tag_width = max(len(f"[{serv_name}] {cam['alias']}") for serv_name, cam in entries)
-            ip_width = max(len(cam['ip']) for _, cam in entries)
+        plant_actual = None
+        for plant_name, serv_name, cams in grupos:
+            if plant_name != plant_actual:
+                if plant_actual is not None:
+                    lines.append("")
+                lines.append(f"{plant_name}:")
+                plant_actual = plant_name
+            else:
+                lines.append("=" * 60)
+                lines.append("")
 
-            for serv_name, cam in entries:
+            tag_width = max(len(f"[{serv_name}] {cam['alias']}") for cam in cams)
+            ip_width = max(len(cam['ip']) for cam in cams)
+            for cam in cams:
                 tag = f"[{serv_name}] {cam['alias']}".ljust(tag_width)
                 ip = cam['ip'].ljust(ip_width)
                 fails = "; ".join(cam["failures"])

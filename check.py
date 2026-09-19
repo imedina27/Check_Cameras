@@ -1,5 +1,6 @@
 from file_processor import InfoPlant, InfoCam_url, read_yaml, log_processor
 from file_processor import status_text, is_success_code, write_summary, log_camera_time
+from file_processor import checkpoint_server_log, replace_camera_section
 from system_processor import ping, name_host, create_tunnel, close_tunnel
 from datetime import datetime
 from cameras import Camera
@@ -87,31 +88,41 @@ def _process_camera(alias, cam, serv_name, plant, ai_port, proxy_ip, proxy_port)
     cam_host = Camera(alias, brand, cam_ip, cam_user, cam_pass,
                     serv_name, plant, ai_port, proxy_ip, proxy_port, channel)
 
-    camera_result = {'alias': alias, 'ip': cam_ip, 'failures': []}
+    # 'steps' guarda (hora, proceso, status_code) de cada paso que sí corrió —
+    # junto con 'hora_ip'/'hora_tiempo'/'elapsed', es lo que necesita
+    # replace_camera_section() para reconstruir el bloque de esta cámara
+    # ordenado (el log en vivo, más abajo, sigue igual para monitoreo en
+    # tiempo real / robustez ante un corte a medio camino).
+    camera_result = {'alias': alias, 'ip': cam_ip, 'failures': [], 'steps': []}
     alias_tag = f"{alias}: "
     inicio_camara = time.perf_counter()
 
     # Verificar el puerto 80 de la cámara
+    camera_result['hora_ip'] = datetime.now().strftime('%H:%M:%S')
     cam_up = cam_host.Cam_Up()
     log_processor(plant, serv_name, f"{alias} IP: {cam_ip}")
     log_processor(plant, serv_name, cam_up, alias_tag, proceso="Puerto 80")
+    camera_result['steps'].append((datetime.now().strftime('%H:%M:%S'), "Puerto 80", cam_up))
 
     if cam_up == 100:
         # Descargar la imagen de la IA
         ia_image = cam_host.Cam_AI_Image()
         log_processor(plant, serv_name, ia_image, alias_tag, proceso="Imagen IA")
+        camera_result['steps'].append((datetime.now().strftime('%H:%M:%S'), "Imagen IA", ia_image))
         if not is_success_code(ia_image):
             camera_result['failures'].append(f"Imagen IA: {_clean_status(ia_image)}")
 
         # Descargar la imagen de la cámara
         cam_image = cam_host.Cam_Image()
         log_processor(plant, serv_name, cam_image, alias_tag, proceso="Imagen cámara")
+        camera_result['steps'].append((datetime.now().strftime('%H:%M:%S'), "Imagen cámara", cam_image))
         if not is_success_code(cam_image):
             camera_result['failures'].append(f"Imagen cámara: {_clean_status(cam_image)}")
 
         # Descargar la configuración de la cámara
         cam_conf = cam_host.Cam_Config()
         log_processor(plant, serv_name, cam_conf, alias_tag, proceso="Configuración")
+        camera_result['steps'].append((datetime.now().strftime('%H:%M:%S'), "Configuración", cam_conf))
         if not is_success_code(cam_conf):
             camera_result['failures'].append(f"Configuración: {_clean_status(cam_conf)}")
     else:
@@ -120,6 +131,8 @@ def _process_camera(alias, cam, serv_name, plant, ai_port, proxy_ip, proxy_port)
     camera_result['complete'] = len(camera_result['failures']) == 0
     elapsed = time.perf_counter() - inicio_camara
     log_camera_time(plant, serv_name, alias, elapsed)
+    camera_result['elapsed'] = elapsed
+    camera_result['hora_tiempo'] = datetime.now().strftime('%H:%M:%S')
     return camera_result
 
 
@@ -130,7 +143,7 @@ def _process_camera_safe(alias, cam, serv_name, plant, ai_port, proxy_ip, proxy_
         return _process_camera(alias, cam, serv_name, plant, ai_port, proxy_ip, proxy_port)
     except Exception as e:
         log_processor(plant, serv_name, f"[ERROR] {alias}: fallo inesperado procesando la cámara: {e}")
-        return {'alias': alias, 'ip': '', 'failures': [f"Fallo inesperado: {e}"], 'complete': False}
+        return {'alias': alias, 'ip': '', 'failures': [f"Fallo inesperado: {e}"], 'complete': False, 'steps': []}
 
 
 def CheckServer(dat_server):                    #---------- PROBADO ----------#
@@ -266,16 +279,26 @@ def CheckServer(dat_server):                    #---------- PROBADO ----------#
             log_processor(plant, serv_name, port_yaml)
             log_processor(plant, serv_name, f"{'='*60}")
             log_processor(plant, serv_name, "")
-            
+
+            # Punto de corte antes de revisar cámaras: replace_camera_section()
+            # recorta de vuelta a aquí y reemplaza lo que se haya escrito desde
+            # este momento por el bloque ya ordenado (encabezado/túneles/YAML
+            # de arriba no se tocan).
+            checkpoint = checkpoint_server_log(plant, serv_name)
+
             # Revisar las cámaras de este servidor en paralelo (no así los
             # servidores entre sí, por el puerto compartido de los túneles)
+            batch_cameras = []
             with concurrent.futures.ThreadPoolExecutor(max_workers=config.MAX_CAMERA_WORKERS) as executor:
                 futures = [
                     executor.submit(_process_camera_safe, alias, cam, serv_name, plant, ai_port, proxy_ip, proxy_port)
                     for alias, cam in active_cam.items()
                 ]
                 for future in concurrent.futures.as_completed(futures):
-                    server_result['cameras'].append(future.result())
+                    batch_cameras.append(future.result())
+
+            server_result['cameras'].extend(batch_cameras)
+            replace_camera_section(plant, serv_name, checkpoint, batch_cameras)
 
             # Cerrar tunel IA
             if tunn_ia:

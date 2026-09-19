@@ -59,6 +59,11 @@ CAM_TIME_THRESHOLD = int(os.getenv('CAM_TIME_THRESHOLD', 15))
 # Cámaras procesadas en paralelo dentro de un mismo servidor
 MAX_CAMERA_WORKERS = int(os.getenv('MAX_CAMERA_WORKERS', 5))
 
+# Estrategia de orden por nombre de servidor para el resumen (ver sort_strategies.py).
+# 'numeric_suffix' = por el número al final del nombre (QLYMSPROD01, QLYMSPROD02...).
+# 'alphabetical' = alfabético por nombre completo (default, siempre válida).
+LOG_SORT_STRATEGY = os.getenv('LOG_SORT_STRATEGY', 'alphabetical')
+
 
 # ============================================
 # CONSTANTES DE APLICACIÓN

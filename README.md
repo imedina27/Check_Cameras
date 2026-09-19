@@ -55,6 +55,7 @@ Ver `.env.example` para la plantilla completa con todos los valores y sus coment
 | `MAX_RETRIES` | Reintentos al cerrar un túnel SSH. |
 | `CAM_TIME_THRESHOLD` | Segundos "normales" para el proceso completo de una cámara — si se excede, se loguea en amarillo (solo visibilidad, no cancela nada). |
 | `MAX_CAMERA_WORKERS` | Cuántas cámaras de un mismo servidor se revisan en paralelo. |
+| `LOG_SORT_STRATEGY` | Orden de servidores/plantas en el resumen (ver `sort_strategies.py`). `alphabetical` (por nombre) o `numeric_suffix` (por el número al final del nombre del servidor, ej. `QLYMSPROD01`, `QLYMSPROD02`...). |
 
 ### `plants.yaml`
 
@@ -133,15 +134,19 @@ El **resumen** (`resumen_dd-mm-aaaa.log`) es el primer lugar para revisar una co
    - `[OK]` — todas sus cámaras activas completaron sin ningún error.
    - `[CON FALLAS]` — al menos una cámara tuvo algún error (el número indica cuántas de cuántas completaron).
    - `[SIN CONEXIÓN]` — el servidor mismo nunca respondió, no se revisó ninguna cámara.
-3. `DETALLE POR PLANTA - CÁMARAS CON FALLAS`: qué cámara falló y en qué paso, agrupado por planta (solo aparece si hubo al menos una falla).
+3. `DETALLE POR PLANTA - CÁMARAS CON FALLAS`: qué cámara falló y en qué paso (solo aparece si hubo al menos una falla). Un bloque por servidor (si una planta tiene varios servidores, van separados por una línea `====`); dentro de cada servidor, las cámaras se ordenan primero por tipo de falla (Puerto 80 → Imagen IA → Imagen cámara → Configuración) y luego alfabéticamente por alias.
+
+Tanto el orden de `DETALLE POR SERVIDOR` como el de las plantas/servidores en `DETALLE POR PLANTA` siguen la estrategia configurada en `LOG_SORT_STRATEGY`.
 
 ## Cómo leer el log
 
-Cada línea sigue el patrón `[hora] [nivel] alias: información [código]`, coloreado según el nivel:
+Cada línea sigue el patrón `[hora] [nivel] alias: proceso  descripción  [código]` (el nombre del proceso — `Puerto 80`, `Imagen IA`, `Imagen cámara`, `Configuración` — siempre queda explícito, no solo el código), coloreado según el nivel:
 
 - **Verde (`INFO`):** éxito, o líneas estructurales (separadores, encabezados).
 - **Amarillo (`WARNING`):** la cámara terminó bien, pero tardó más de `CAM_TIME_THRESHOLD` — solo aviso, no indica una falla.
 - **Rojo (`ERROR`):** falla real — el código entre corchetes (`[111]`, `[790]`, etc.) identifica el tipo exacto; el catálogo completo está en `config.STATUS_MESSAGES`.
+
+El log de cada servidor se escribe en vivo mientras corre (así queda un rastro aunque el programa se interrumpa a medio camino), pero justo después de terminar de revisar sus cámaras, la sección de cámaras se reescribe limpia: cada cámara en un bloque contiguo (antes podían intercalarse entre sí, porque varias corren en paralelo), ordenadas alfabéticamente por alias y con columnas alineadas. El encabezado, los túneles y la lectura del YAML no se tocan.
 
 ## Pruebas automatizadas
 

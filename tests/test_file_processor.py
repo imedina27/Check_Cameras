@@ -158,3 +158,77 @@ class TestWriteSummaryDetallePorServidor:
         ]
         texto = self._run(tmp_path, monkeypatch, server_results)
         assert texto.count("[OK]") == 2
+
+    def test_respeta_la_estrategia_de_orden_configurada(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "LOG_SORT_STRATEGY", "numeric_suffix")
+        server_results = [
+            {"serv_name": "QLYMSPROD11", "plant": "ATLANTICO", "problem": None, "cameras": [_cam(True)]},
+            {"serv_name": "QLYMSPROD02", "plant": "ZACATECAS", "problem": None, "cameras": [_cam(True)]},
+        ]
+        texto = self._run(tmp_path, monkeypatch, server_results)
+        seccion = texto.split("DETALLE POR SERVIDOR")[1].split("=" * 42)[0]
+        assert seccion.index("QLYMSPROD02") < seccion.index("QLYMSPROD11")
+
+
+def _fail_cam(alias, ip, *fallas):
+    return {"alias": alias, "ip": ip, "failures": list(fallas), "complete": False}
+
+
+class TestWriteSummaryDetallePorPlanta:
+    def _run(self, tmp_path, monkeypatch, server_results, strategy="alphabetical"):
+        monkeypatch.setattr(config, "RESULT_PATH", str(tmp_path))
+        monkeypatch.setattr(config, "LOG_SORT_STRATEGY", strategy)
+        file_processor._dirs_ensured.clear()
+        write_summary(server_results)
+        [resumen] = list(tmp_path.rglob("resumen_*.log"))
+        return resumen.read_text(encoding="utf-8")
+
+    def test_ordena_camaras_por_tipo_de_falla_y_luego_alfabetico(self, tmp_path, monkeypatch):
+        # Puerto 80 antes que Imagen IA aunque el alias sea alfabeticamente posterior
+        server_results = [{
+            "serv_name": "SRV1", "plant": "PLANTA1", "problem": None,
+            "cameras": [
+                _fail_cam("Z1", "1.1.1.1", "Imagen IA: Timed out [601]"),
+                _fail_cam("A1", "1.1.1.2", "Puerto 80: Timed out [111]"),
+                _fail_cam("B1", "1.1.1.3", "Puerto 80: Timed out [111]"),
+            ],
+        }]
+        texto = self._run(tmp_path, monkeypatch, server_results)
+        detalle = texto.split("DETALLE POR PLANTA")[1]
+        assert detalle.index("A1") < detalle.index("B1") < detalle.index("Z1")
+
+    def test_camara_con_varias_fallas_usa_la_mas_temprana_para_ordenar(self, tmp_path, monkeypatch):
+        server_results = [{
+            "serv_name": "SRV1", "plant": "PLANTA1", "problem": None,
+            "cameras": [
+                _fail_cam("Z1", "1.1.1.1", "Configuración: Unknow error [790]"),
+                _fail_cam("A1", "1.1.1.2", "Imagen IA: Timed out [601]", "Configuración: Unknow error [790]"),
+            ],
+        }]
+        texto = self._run(tmp_path, monkeypatch, server_results)
+        detalle = texto.split("DETALLE POR PLANTA")[1]
+        # A1 tiene Imagen IA (prioridad mas alta) entre sus fallas, va primero
+        assert detalle.index("A1") < detalle.index("Z1")
+
+    def test_separador_entre_servidores_de_la_misma_planta(self, tmp_path, monkeypatch):
+        server_results = [
+            {"serv_name": "SRV1", "plant": "PLANTA1", "problem": None,
+             "cameras": [_fail_cam("A1", "1.1.1.1", "Puerto 80: Timed out [111]")]},
+            {"serv_name": "SRV2", "plant": "PLANTA1", "problem": None,
+             "cameras": [_fail_cam("A2", "1.1.1.2", "Puerto 80: Timed out [111]")]},
+        ]
+        texto = self._run(tmp_path, monkeypatch, server_results)
+        detalle = texto.split("DETALLE POR PLANTA")[1]
+        assert detalle.count("PLANTA1:") == 1
+        assert "=" * 60 in detalle
+
+    def test_plantas_ordenadas_por_la_estrategia_configurada(self, tmp_path, monkeypatch):
+        server_results = [
+            {"serv_name": "QLYMSPROD11", "plant": "ATLANTICO", "problem": None,
+             "cameras": [_fail_cam("A1", "1.1.1.1", "Puerto 80: Timed out [111]")]},
+            {"serv_name": "QLYMSPROD02", "plant": "ZACATECAS", "problem": None,
+             "cameras": [_fail_cam("A2", "1.1.1.2", "Puerto 80: Timed out [111]")]},
+        ]
+        texto = self._run(tmp_path, monkeypatch, server_results, strategy="numeric_suffix")
+        detalle = texto.split("DETALLE POR PLANTA")[1]
+        assert detalle.index("ZACATECAS:") < detalle.index("ATLANTICO:")
