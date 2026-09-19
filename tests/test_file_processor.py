@@ -135,21 +135,31 @@ class TestWriteSummaryDetallePorServidor:
             {"serv_name": "SRV1", "plant": "PLANTA1", "problem": None, "cameras": [_cam(True), _cam(True)]},
         ]
         texto = self._run(tmp_path, monkeypatch, server_results)
-        assert "[OK]           PLANTA1      SRV1           2/2 cámaras completas" in texto
+        assert "[OK]   PLANTA1   SRV1   2/2 cámaras completas" in texto
 
     def test_servidor_con_al_menos_una_falla(self, tmp_path, monkeypatch):
         server_results = [
             {"serv_name": "SRV1", "plant": "PLANTA1", "problem": None, "cameras": [_cam(True), _cam(False)]},
         ]
         texto = self._run(tmp_path, monkeypatch, server_results)
-        assert "[CON FALLAS]   PLANTA1      SRV1           1/2 cámaras completas" in texto
+        assert "[CON FALLAS]   PLANTA1   SRV1   1/2 cámaras completas" in texto
 
     def test_servidor_sin_conexion_no_desaparece(self, tmp_path, monkeypatch):
         server_results = [
             {"serv_name": "SRV1", "plant": "PLANTA1", "problem": "Sin IP disponible (zerotier/local/cámaras)", "cameras": []},
         ]
         texto = self._run(tmp_path, monkeypatch, server_results)
-        assert "[SIN CONEXIÓN] PLANTA1      SRV1           Sin IP disponible (zerotier/local/cámaras)" in texto
+        assert "[SIN CONEXIÓN]   PLANTA1   SRV1   Sin IP disponible (zerotier/local/cámaras)" in texto
+
+    def test_columnas_no_se_pegan_con_nombres_largos(self, tmp_path, monkeypatch):
+        # Bug real: con ancho fijo, "API-MANZANILLO" (14 caracteres) se
+        # pegaba directo con el nombre del servidor siguiente, sin espacio.
+        server_results = [
+            {"serv_name": "APIMAN-FASE1", "plant": "API-MANZANILLO", "problem": None, "cameras": [_cam(True)]},
+        ]
+        texto = self._run(tmp_path, monkeypatch, server_results)
+        assert "API-MANZANILLOAPIMAN-FASE1" not in texto
+        assert "API-MANZANILLO   APIMAN-FASE1" in texto
 
     def test_todos_los_servidores_aparecen_aunque_esten_perfectos(self, tmp_path, monkeypatch):
         server_results = [

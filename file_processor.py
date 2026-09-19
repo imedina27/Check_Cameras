@@ -573,6 +573,7 @@ def write_summary(server_results):                                         #----
     # y no había forma de distinguir "todo bien" de "nunca se revisó".
     lines.append("")
     lines.append("DETALLE POR SERVIDOR")
+    filas = []
     for r in sorted(server_results, key=lambda r: sort_key(r["serv_name"])):
         if r["problem"] is not None:
             estado = "[SIN CONEXIÓN]"
@@ -582,7 +583,18 @@ def write_summary(server_results):                                         #----
             completas = sum(1 for cam in r["cameras"] if cam["complete"])
             estado = "[OK]" if completas == total else "[CON FALLAS]"
             detalle = f"{completas}/{total} cámaras completas"
-        lines.append(f"  {estado:<15}{r['plant']:<13}{r['serv_name']:<15}{detalle}")
+        filas.append((estado, r["plant"], r["serv_name"], detalle))
+
+    if filas:
+        # Anchos según el contenido real (no fijos): un nombre de planta o
+        # servidor más largo de lo esperado ya no se pega con la siguiente
+        # columna (bug real encontrado en producción: "API-MANZANILLO" con
+        # ancho fijo de 13 se pegaba directo con el nombre del servidor).
+        estado_width = max(len(f[0]) for f in filas)
+        plant_width = max(len(f[1]) for f in filas)
+        serv_width = max(len(f[2]) for f in filas)
+        for estado, plant, serv_name, detalle in filas:
+            lines.append(f"  {estado.ljust(estado_width)}   {plant.ljust(plant_width)}   {serv_name.ljust(serv_width)}   {detalle}")
     lines.append("=" * 42)
 
     if cameras_failed:
