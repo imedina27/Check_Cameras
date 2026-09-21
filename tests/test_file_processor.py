@@ -145,11 +145,15 @@ class TestWriteSummaryDetallePorServidor:
         assert "[CON FALLAS]   PLANTA1   SRV1   1/2 cámaras completas" in texto
 
     def test_servidor_sin_conexion_no_desaparece(self, tmp_path, monkeypatch):
+        # El detalle del error (por qué no hubo conexión) ya está en el log
+        # de esa planta — aquí solo "-/-", igual que [SIN YAML], para no
+        # romper la alineación de la columna con un mensaje largo.
         server_results = [
             {"serv_name": "SRV1", "plant": "PLANTA1", "problem": "Sin IP disponible (zerotier/local/cámaras)", "cameras": []},
         ]
         texto = self._run(tmp_path, monkeypatch, server_results)
-        assert "[SIN CONEXIÓN]   PLANTA1   SRV1   Sin IP disponible (zerotier/local/cámaras)" in texto
+        assert "[SIN CONEXIÓN]   PLANTA1   SRV1   -/- cámaras completas" in texto
+        assert "Sin IP disponible" not in texto
 
     def test_servidor_sin_yaml_usa_su_propia_etiqueta(self, tmp_path, monkeypatch):
         # Distinto de [SIN CONEXIÓN]: el servidor sí respondió, pero no se
