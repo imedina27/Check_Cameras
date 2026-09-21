@@ -154,15 +154,18 @@ class TestWriteSummaryDetallePorServidor:
     def test_servidor_sin_yaml_usa_su_propia_etiqueta(self, tmp_path, monkeypatch):
         # Distinto de [SIN CONEXIÓN]: el servidor sí respondió, pero no se
         # pudo leer el listado de cámaras (bug real: antes esto se perdía
-        # y el servidor aparecía como [OK] 0/0).
+        # y el servidor aparecía como [OK] 0/0). El detalle del error ya
+        # está en el log de esa planta, así que aquí solo se muestra "-/-"
+        # (no un "0/0": nunca se supo cuántas cámaras hay realmente).
         server_results = [
             {"serv_name": "SRV1", "plant": "PLANTA1", "problem": "No se pudo leer el YAML de cámaras (puerto 8045: YAML Connection error [410])",
              "problem_type": "sin_yaml", "cameras": []},
         ]
         texto = self._run(tmp_path, monkeypatch, server_results)
-        assert "[SIN YAML]   PLANTA1   SRV1   No se pudo leer el YAML de cámaras" in texto
+        assert "[SIN YAML]   PLANTA1   SRV1   -/- cámaras completas" in texto
         assert "[SIN CONEXIÓN]" not in texto
         assert "[OK]" not in texto
+        assert "YAML Connection error" not in texto
 
     def test_columnas_no_se_pegan_con_nombres_largos(self, tmp_path, monkeypatch):
         # Bug real: con ancho fijo, "API-MANZANILLO" (14 caracteres) se

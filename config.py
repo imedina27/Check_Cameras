@@ -30,6 +30,11 @@ RETRY_DELAY = int(os.getenv('RETRY_DELAY', 1))
 # Image
 MAX_IMAGE_RETRIES = int(os.getenv('MAX_AI_RETRIES', 3))
 IMAGE_TIMEOUT = int(os.getenv('AI_IMAGE_TIMEOUT', 3))
+# Espera entre reintentos al pedir una imagen (IA o cámara) — mitiga fallas
+# transitorias de conexión bajo concurrencia, mismo enfoque que ya usaba
+# Cam_Config() (confirmado en producción: reintentar con una espera breve
+# recupera la mayoría de estas fallas).
+IMAGE_RETRY_DELAY = int(os.getenv('IMAGE_RETRY_DELAY', 1))
 
 # Configuartion
 CONF_TIMEOUT = int(os.getenv('CONF_TIMEOUT', 3))

@@ -134,7 +134,7 @@ El **resumen** (`resumen_dd-mm-aaaa.log`) es el primer lugar para revisar una co
    - `[OK]` — todas sus cámaras activas completaron sin ningún error.
    - `[CON FALLAS]` — al menos una cámara tuvo algún error (el número indica cuántas de cuántas completaron).
    - `[SIN CONEXIÓN]` — el servidor mismo nunca respondió, no se revisó ninguna cámara.
-   - `[SIN YAML]` — el servidor sí respondió, pero no se pudo leer el listado de cámaras en ningún puerto IA (distinto de `[SIN CONEXIÓN]`: aquí sí hubo contacto con el servidor, solo falló ese paso puntual).
+   - `[SIN YAML]` — el servidor sí respondió, pero no se pudo leer el listado de cámaras en ningún puerto IA (distinto de `[SIN CONEXIÓN]`: aquí sí hubo contacto con el servidor, solo falló ese paso puntual). Se muestra como `-/- cámaras completas` — el detalle del error ya está en el log de esa planta, no se repite aquí.
 3. `DETALLE POR PLANTA - CÁMARAS CON FALLAS`: qué cámara falló y en qué paso (solo aparece si hubo al menos una falla). Un bloque por servidor (si una planta tiene varios servidores, van separados por una línea `====`); dentro de cada servidor, las cámaras se ordenan primero por tipo de falla (Puerto 80 → Imagen IA → Imagen cámara → Configuración) y luego alfabéticamente por alias.
 
 Tanto el orden de `DETALLE POR SERVIDOR` como el de las plantas/servidores en `DETALLE POR PLANTA` siguen la estrategia configurada en `LOG_SORT_STRATEGY`.

@@ -268,6 +268,11 @@ def CheckServer(dat_server):                    #---------- PROBADO ----------#
 
         if status_code != 400:
             yaml_failures.append(f"puerto {ia_port}: {_clean_status(status_code)}")
+            # Cierra el bloque del YAML aunque haya fallado — si no, esta
+            # línea de error queda pegada directo con el cierre de túneles
+            # de más abajo, sin nada que marque dónde termina un bloque y
+            # empieza el otro.
+            log_processor(plant, serv_name, f"{'='*60}")
 
         # Procesar resultado
         if status_code == 400:
@@ -318,13 +323,14 @@ def CheckServer(dat_server):                    #---------- PROBADO ----------#
         if tunn_ia:
             close_tunnel(ia_loc_port, False, plant, serv_name)
             tunn_ia = False
+            log_processor(plant, serv_name, f"{'='*60}")
 
         # Cerrar tunel PX
         if tunn_px:
             close_tunnel(px_loc_port, True, plant, serv_name)
             tunn_px = False
+            log_processor(plant, serv_name, f"{'='*60}")
 
-        log_processor(plant, serv_name, f"{'='*60}")
         log_processor(plant, serv_name, "")
 
     if not server_result['cameras'] and yaml_failures:

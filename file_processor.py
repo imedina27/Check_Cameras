@@ -576,8 +576,16 @@ def write_summary(server_results):                                         #----
     filas = []
     for r in sorted(server_results, key=lambda r: sort_key(r["serv_name"])):
         if r["problem"] is not None:
-            estado = "[SIN YAML]" if r.get("problem_type") == "sin_yaml" else "[SIN CONEXIÓN]"
-            detalle = r["problem"]
+            if r.get("problem_type") == "sin_yaml":
+                # El detalle del error ya está en el log de esa planta; aquí
+                # solo interesa saber que no se revisó ninguna cámara — "-/-"
+                # en vez de "0/0" para no insinuar que sí se determinó un
+                # total (nunca se llegó a leer el YAML, no se sabe cuántas hay).
+                estado = "[SIN YAML]"
+                detalle = "-/- cámaras completas"
+            else:
+                estado = "[SIN CONEXIÓN]"
+                detalle = r["problem"]
         else:
             total = len(r["cameras"])
             completas = sum(1 for cam in r["cameras"] if cam["complete"])

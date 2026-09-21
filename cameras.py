@@ -89,25 +89,30 @@ class Camera:
             img_ai_url = f"http://{self.proxy_ip}:{self.ia_port}/oneshot/{self.alias}"
         else:
             img_ai_url = f"http://localhost:{self.ia_port}/oneshot/{self.alias}"
-        cam_res = 690  
+        cam_res = 690
         max_attempts = config.MAX_IMAGE_RETRIES
-        
+
         for attempt in range(max_attempts):
             try:
                 response = self.session.get(img_ai_url, timeout=config.IMAGE_TIMEOUT)
                 status_code = response.status_code
-                
+
                 if status_code == 200:
-                    cam_img = response.content 
+                    cam_img = response.content
                     cam_res = save_img(cam_img, self.plant, self.serv_name, self.alias, True)
                     return cam_res
                 else:
                     cam_res = 503
-                    
+
             except requests.exceptions.Timeout:
                 cam_res = 611
             except requests.exceptions.RequestException as e:
                 cam_res = 503
+            # Espera antes de reintentar (salvo en el último intento): antes
+            # los reintentos se hacían de inmediato, uno tras otro, sin dar
+            # tiempo a que se despeje una congestión transitoria del proxy.
+            if attempt < max_attempts - 1:
+                time.sleep(config.IMAGE_RETRY_DELAY)
         return cam_res
 
 
@@ -116,8 +121,21 @@ class Camera:
         if handlers is None:
             return 620
         image_func, _ = handlers
-        cam_img = image_func(self.session, self.cam_ip, self.cam_user, self.cam_pass,
-                             self.proxy_ip, self.proxy_port, self.channel, self.plant, self.serv_name)
+
+        # Reintentar ante cualquier falla, mismo patrón que Cam_Config():
+        # antes esta llamada no tenía ningún reintento — confirmado en
+        # producción que las fallas de "Imagen cámara: Timed out" aumentan
+        # bajo concurrencia (varias cámaras fallando casi al mismo segundo),
+        # el mismo tipo de congestión transitoria que ya vimos con Cam_Config.
+        max_retries = config.MAX_IMAGE_RETRIES
+        cam_img = 690
+        for attempt in range(max_retries):
+            cam_img = image_func(self.session, self.cam_ip, self.cam_user, self.cam_pass,
+                                 self.proxy_ip, self.proxy_port, self.channel, self.plant, self.serv_name)
+            if not isinstance(cam_img, int):
+                break
+            if attempt < max_retries - 1:
+                time.sleep(config.IMAGE_RETRY_DELAY)
 
         if isinstance(cam_img, int):
             return cam_img
