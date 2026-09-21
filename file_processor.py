@@ -576,7 +576,7 @@ def write_summary(server_results):                                         #----
     filas = []
     for r in sorted(server_results, key=lambda r: sort_key(r["serv_name"])):
         if r["problem"] is not None:
-            estado = "[SIN CONEXIÓN]"
+            estado = "[SIN YAML]" if r.get("problem_type") == "sin_yaml" else "[SIN CONEXIÓN]"
             detalle = r["problem"]
         else:
             total = len(r["cameras"])

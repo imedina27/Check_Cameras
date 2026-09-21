@@ -59,3 +59,46 @@ class TestFindVerifiedTunnelPid:
         monkeypatch.setattr(sp, "find_tunnel_pid", lambda loc_port: None)
 
         assert sp._find_verified_tunnel_pid(9045, "localhost", 8045, "QLYMSPROD02") is None
+
+
+class _FakeIterProcess:
+    def __init__(self, name, cmdline):
+        self.info = {"pid": 1, "name": name, "cmdline": cmdline}
+        self.terminated = False
+
+    def terminate(self):
+        self.terminated = True
+
+
+class TestAlternativeClose:
+    # Bug real: el patron anterior (":{loc_port}") nunca coincidia con el
+    # puerto LOCAL de un forward SSH real (precedido de un espacio, no de
+    # ":"), asi que esta funcion nunca mataba el proceso huerfano que debia.
+    def test_mata_el_proceso_que_usa_el_puerto_local(self, monkeypatch):
+        proceso = _FakeIterProcess("ssh", ["ssh", "-f", "-g", "-N", "-L", "9045:localhost:8045", "QBYMSPROD08"])
+        monkeypatch.setattr(sp.psutil, "process_iter", lambda attrs: [proceso])
+        monkeypatch.setattr(sp.time, "sleep", lambda s: None)
+
+        sp.alternative_close(9045)
+
+        assert proceso.terminated is True
+
+    def test_no_mata_un_proceso_cuyo_puerto_remoto_coincide_mas_no_el_local(self, monkeypatch):
+        # El puerto 9045 aparece como destino (":9045" existe en la linea),
+        # pero no es el puerto LOCAL de este forward — no debe matarse.
+        proceso = _FakeIterProcess("ssh", ["ssh", "-f", "-g", "-N", "-L", "39533:localhost:9045", "OTRO-SERVIDOR"])
+        monkeypatch.setattr(sp.psutil, "process_iter", lambda attrs: [proceso])
+        monkeypatch.setattr(sp.time, "sleep", lambda s: None)
+
+        sp.alternative_close(9045)
+
+        assert proceso.terminated is False
+
+    def test_no_mata_procesos_que_no_son_ssh(self, monkeypatch):
+        proceso = _FakeIterProcess("python", ["python", "-L", "9045:localhost:8045"])
+        monkeypatch.setattr(sp.psutil, "process_iter", lambda attrs: [proceso])
+        monkeypatch.setattr(sp.time, "sleep", lambda s: None)
+
+        sp.alternative_close(9045)
+
+        assert proceso.terminated is False

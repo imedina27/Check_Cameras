@@ -333,13 +333,20 @@ def close_tunnel(loc_port, px: bool, plant=None, serv_name=None, _retries: int =
 
 
 def alternative_close(loc_port):
-    # Busca procesos ssh cuya línea de comando referencie el puerto local
-    # y los termina. Funciona igual en Windows y Linux (antes usaba 'pkill',
-    # exclusivo de Unix).
+    # Busca procesos ssh cuya línea de comando referencie el puerto LOCAL del
+    # forward (-L loc_port:dest_host:dest_port) y los termina. Funciona igual
+    # en Windows y Linux (antes usaba 'pkill', exclusivo de Unix).
+    #
+    # El patrón busca "-L {loc_port}:" específicamente, no solo ":{loc_port}"
+    # en cualquier parte de la línea — bug real encontrado en producción: el
+    # puerto local siempre va precedido de un espacio ("-L 9045:localhost:8045"),
+    # nunca de ":", así que ":{loc_port}" nunca coincidía y esta función no
+    # mataba nada. Como consecuencia, un túnel huérfano nunca se limpiaba y
+    # atascaba el puerto compartido para todos los servidores siguientes.
     try:
         for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
             cmdline = ' '.join(proc.info.get('cmdline') or [])
-            if 'ssh' in (proc.info.get('name') or '').lower() and f":{loc_port}" in cmdline:
+            if 'ssh' in (proc.info.get('name') or '').lower() and f"-L {loc_port}:" in cmdline:
                 try:
                     proc.terminate()
                 except (psutil.NoSuchProcess, psutil.AccessDenied):

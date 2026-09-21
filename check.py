@@ -44,11 +44,12 @@ def _clean_status(status_code):
     return " ".join(status_text(status_code).split())
 
 
-def _new_server_result(dat_server, problem=None):
+def _new_server_result(dat_server, problem=None, problem_type="sin_conexion"):
     return {
         'serv_name': dat_server.get('serv_name', 'DESCONOCIDO'),
         'plant': dat_server.get('plant', 'DESCONOCIDO'),
         'problem': problem,
+        'problem_type': problem_type,
         'cameras': [],
     }
 
@@ -245,11 +246,13 @@ def CheckServer(dat_server):                    #---------- PROBADO ----------#
         tunn_px = True
         proxy_port = px_loc_port
         
+    yaml_failures = []
+
     for ia_port in ia_ports:
         if type == "tunnels":
             create_tunnel(ia_loc_port,"localhost",ia_port, serv_name, False, plant)
             log_processor(plant, serv_name, f"{'='*60}")
-            tunn_ia = True            
+            tunn_ia = True
             url_yaml = f"http://localhost:{ia_loc_port}/cameras"
             ai_port = ia_loc_port
 
@@ -259,10 +262,13 @@ def CheckServer(dat_server):                    #---------- PROBADO ----------#
 
         # leer el YAML
         status_code, cameras_data = read_yaml(url_yaml, plant, serv_name)
-        
+
         # Status - loggear
         log_processor(plant, serv_name, status_code)
-            
+
+        if status_code != 400:
+            yaml_failures.append(f"puerto {ia_port}: {_clean_status(status_code)}")
+
         # Procesar resultado
         if status_code == 400:
             active_cam = {}
@@ -300,13 +306,19 @@ def CheckServer(dat_server):                    #---------- PROBADO ----------#
             server_result['cameras'].extend(batch_cameras)
             replace_camera_section(plant, serv_name, checkpoint, batch_cameras)
 
-            # Cerrar tunel IA
-            if tunn_ia:
-                close_tunnel(ia_loc_port, False, plant, serv_name)
-                tunn_ia = False
-        
             log_processor(plant, serv_name, f"{'='*60}")
-        
+
+        # Cerrar tunel IA — fuera del "if status_code == 400" a propósito: si
+        # el YAML falla, el túnel se abrió igual y debe cerrarse igual. Antes
+        # quedaba anidado ahí adentro y, si el YAML fallaba, el túnel IA
+        # nunca se cerraba — quedaba huérfano ocupando el puerto compartido
+        # y arruinaba la lectura de TODOS los servidores siguientes (bug real
+        # encontrado en producción: QBYMSPROD08 -> VALLE -> GUADALAJARA ->
+        # ATLANTICO, todos fallando en cascada por el mismo puerto atascado).
+        if tunn_ia:
+            close_tunnel(ia_loc_port, False, plant, serv_name)
+            tunn_ia = False
+
         # Cerrar tunel PX
         if tunn_px:
             close_tunnel(px_loc_port, True, plant, serv_name)
@@ -314,5 +326,9 @@ def CheckServer(dat_server):                    #---------- PROBADO ----------#
 
         log_processor(plant, serv_name, f"{'='*60}")
         log_processor(plant, serv_name, "")
+
+    if not server_result['cameras'] and yaml_failures:
+        server_result['problem'] = "No se pudo leer el YAML de cámaras (" + "; ".join(yaml_failures) + ")"
+        server_result['problem_type'] = "sin_yaml"
 
     return server_result
