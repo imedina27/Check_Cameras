@@ -4,7 +4,7 @@ import config
 from file_processor import log_processor
 
 
-def VivoCamImage(session, camera_ip, username, password, proxy_ip, proxy_port, channel=1, plant=None, server=None):
+def VivoCamImage(session, camera_ip, username, password, proxy_ip, proxy_port, channel=1, plant=None, server=None, result_path=None):
     password = urllib.parse.unquote(password)
 
     img_urls = [
@@ -42,19 +42,19 @@ def VivoCamImage(session, camera_ip, username, password, proxy_ip, proxy_port, c
         return 640
 
     except requests.exceptions.Timeout:
-        log_processor(plant, server, f"[ERROR] {camera_ip}: timeout al descargar imagen")
+        log_processor(plant, server, f"[ERROR] {camera_ip}: timeout al descargar imagen", result_path=result_path)
         return 611
 
     except requests.exceptions.ConnectionError as e:
-        log_processor(plant, server, f"[ERROR] {camera_ip}: error de conexión al descargar imagen: {e}")
+        log_processor(plant, server, f"[ERROR] {camera_ip}: error de conexión al descargar imagen: {e}", result_path=result_path)
         return 620
 
     except requests.exceptions.RequestException as e:
-        log_processor(plant, server, f"[ERROR] {camera_ip}: error inesperado al descargar imagen: {e}")
+        log_processor(plant, server, f"[ERROR] {camera_ip}: error inesperado al descargar imagen: {e}", result_path=result_path)
         return 690
 
 
-def VivoCamConf(session, camera_ip, username, password, proxy_ip, proxy_port, channel=1, plant=None, server=None):
+def VivoCamConf(session, camera_ip, username, password, proxy_ip, proxy_port, channel=1, plant=None, server=None, result_path=None):
     # Decodificar la contraseña si contiene caracteres codificados como %40
     password = urllib.parse.unquote(password)
         
@@ -84,11 +84,11 @@ def VivoCamConf(session, camera_ip, username, password, proxy_ip, proxy_port, ch
         json_conf = txt_to_json(response.text)
     
     except requests.exceptions.Timeout:
-        log_processor(plant, server, f"[ERROR] {camera_ip}: timeout al descargar configuración")
+        log_processor(plant, server, f"[ERROR] {camera_ip}: timeout al descargar configuración", result_path=result_path)
         return 711
 
     except requests.exceptions.RequestException as e:
-        log_processor(plant, server, f"[ERROR] {camera_ip}: error al descargar configuración: {e}")
+        log_processor(plant, server, f"[ERROR] {camera_ip}: error al descargar configuración: {e}", result_path=result_path)
         return 790
 
     return json_conf

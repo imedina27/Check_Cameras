@@ -72,7 +72,7 @@ def test_falla_yaml_en_servidor_con_tuneles_cierra_ambos_y_marca_problema(tmp_re
     monkeypatch.setattr(check, "ping", lambda ip, plant, serv, **k: 800)
     monkeypatch.setattr(check, "name_host", lambda: "OTRA-MAQUINA")
     monkeypatch.setattr(check, "create_tunnel", lambda *a, **k: True)
-    monkeypatch.setattr(check, "read_yaml", lambda url, plant, serv: (410, {}))
+    monkeypatch.setattr(check, "read_yaml", lambda url, plant, serv, **k: (410, {}))
 
     tuneles_cerrados = []
     monkeypatch.setattr(check, "close_tunnel", lambda loc_port, px, plant, serv, **k: tuneles_cerrados.append(loc_port))

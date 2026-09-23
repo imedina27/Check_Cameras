@@ -132,7 +132,8 @@ class Camera:
         cam_img = 690
         for attempt in range(max_retries):
             cam_img = image_func(self.session, self.cam_ip, self.cam_user, self.cam_pass,
-                                 self.proxy_ip, self.proxy_port, self.channel, self.plant, self.serv_name)
+                                 self.proxy_ip, self.proxy_port, self.channel, self.plant, self.serv_name,
+                                 result_path=self.result_path)
             if not isinstance(cam_img, int):
                 break
             if attempt < max_retries - 1:
@@ -163,7 +164,8 @@ class Camera:
         cam_conf = 790
         for attempt in range(max_retries):
             cam_conf = config_func(self.session, self.cam_ip, self.cam_user, self.cam_pass,
-                                   self.proxy_ip, self.proxy_port, self.channel, self.plant, self.serv_name)
+                                   self.proxy_ip, self.proxy_port, self.channel, self.plant, self.serv_name,
+                                   result_path=self.result_path)
             if not isinstance(cam_conf, int):
                 break
             if attempt < max_retries - 1:

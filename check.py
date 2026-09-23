@@ -94,7 +94,7 @@ def _process_camera(alias, cam, serv_name, plant, ai_port, proxy_ip, proxy_port,
     la cámara al frente, porque varias cámaras corren en paralelo y sus
     líneas se intercalan en el log del servidor."""
     video_url = cam.get('videoURL')
-    info_cam = InfoCam_url(video_url, plant, serv_name)
+    info_cam = InfoCam_url(video_url, plant, serv_name, result_path=result_path)
 
     brand = info_cam.get('brand')
     cam_ip = info_cam.get('ip')
@@ -281,7 +281,7 @@ def CheckServer(dat_server):                    #---------- PROBADO ----------#
             ai_port = ia_port
 
         # leer el YAML
-        status_code, cameras_data = read_yaml(url_yaml, plant, serv_name)
+        status_code, cameras_data = read_yaml(url_yaml, plant, serv_name, result_path=result_path)
 
         # Status - loggear
         log_processor(plant, serv_name, status_code, result_path=result_path)

@@ -199,7 +199,7 @@ def mask_credentials(url):                                                  #---
     return re.sub(r'(://)[^:/@]+:[^/]*@', r'\1***:***@', url)
 
 
-def InfoCam_url(url, plant=None, server=None):                              #---------- PROBADO ----------#
+def InfoCam_url(url, plant=None, server=None, result_path=None):            #---------- PROBADO ----------#
     # Establecer valores por defecto
     info = {
         'user': '',
@@ -244,7 +244,7 @@ def InfoCam_url(url, plant=None, server=None):                              #---
             info['channel'] = int(match_channel.group(1))
                     
     except Exception as e:
-        log_processor(plant, server, f"[ERROR] Error al extraer información de la URL {mask_credentials(url)}: {str(e)}")
+        log_processor(plant, server, f"[ERROR] Error al extraer información de la URL {mask_credentials(url)}: {str(e)}", result_path=result_path)
 
     return info
 
@@ -512,7 +512,7 @@ def dirs_path(plant=None, server=None, result_path=None):                   #---
     return result_path
 
 
-def read_yaml(url, plant=None, server=None):                                #---------- PROBADO ----------#
+def read_yaml(url, plant=None, server=None, result_path=None):              #---------- PROBADO ----------#
     """
     Lee un archivo YAML desde una URL HTTP.
     
@@ -560,7 +560,7 @@ def read_yaml(url, plant=None, server=None):                                #---
         return 412, None
 
     except Exception as e:
-        log_processor(plant, server, f"[ERROR] Error inesperado leyendo YAML desde {url}: {e}")
+        log_processor(plant, server, f"[ERROR] Error inesperado leyendo YAML desde {url}: {e}", result_path=result_path)
         return 415, None
     
 
