@@ -26,7 +26,7 @@ CAMERA_HANDLERS = {
 
 
 class Camera:
-    def __init__(self, alias, brand, cam_ip, cam_user, cam_pass, serv_name, plant, ia_port, proxy_ip, proxy_port, channel=1):
+    def __init__(self, alias, brand, cam_ip, cam_user, cam_pass, serv_name, plant, ia_port, proxy_ip, proxy_port, channel=1, result_path=None):
         self.alias = alias
         self.brand = brand
         self.cam_ip = cam_ip
@@ -38,6 +38,7 @@ class Camera:
         self.proxy_port = proxy_port
         self.proxy_ip = proxy_ip
         self.channel = channel
+        self.result_path = result_path
         # Session compartida entre todas las peticiones de esta cámara:
         # reutiliza la conexión TCP en vez de abrir una nueva por cada request.
         self.session = requests.Session()
@@ -99,7 +100,7 @@ class Camera:
 
                 if status_code == 200:
                     cam_img = response.content
-                    cam_res = save_img(cam_img, self.plant, self.serv_name, self.alias, True)
+                    cam_res = save_img(cam_img, self.plant, self.serv_name, self.alias, True, result_path=self.result_path)
                     return cam_res
                 else:
                     cam_res = 503
@@ -140,7 +141,7 @@ class Camera:
         if isinstance(cam_img, int):
             return cam_img
         else:
-            cam_img = save_img(cam_img, self.plant, self.serv_name, self.alias, False)
+            cam_img = save_img(cam_img, self.plant, self.serv_name, self.alias, False, result_path=self.result_path)
             if cam_img == 600:
                 cam_img = 601
             return cam_img
@@ -171,6 +172,6 @@ class Camera:
         if isinstance(cam_conf, int):
                 return cam_conf
         else:
-            save_json(cam_conf, self.plant, self.serv_name, self.alias)
+            save_json(cam_conf, self.plant, self.serv_name, self.alias, result_path=self.result_path)
             status = 700
             return status

@@ -11,10 +11,10 @@ load_dotenv()
 LOCAL_HOST  = os.getenv('LOCAL_HOST', 'NOQUANTUM')
 
 # Directorios
+# Prefijo comun de resultados: cada cliente descubierto en conf/plants/*.yaml
+# cuelga de aqui en RESULT_PATH/<client_id>/... (ver discover_client_files()
+# en file_processor.py) — ya no es la ruta final directa.
 RESULT_PATH = os.getenv('RESULT_PATH', './results')
-
-# Archivo de plantas a usar (varía según el entorno: Windows local vs Ubuntu Server)
-PLANTS_FILE = os.getenv('PLANTS_FILE', 'plants.yaml')
 
 # Puertos locales para tuneles
 PX_LOC_PORT = int(os.getenv('PX_LOC_PORT', 39533))

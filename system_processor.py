@@ -15,7 +15,7 @@ def get_os():                   #---------- PROBADO ----------#
     return platform.system().lower()
 
 
-def ping(host, plant=None, server=None):  #---------- PROBADO ----------#
+def ping(host, plant=None, server=None, result_path=None):  #---------- PROBADO ----------#
     # Validación inicial
     if not host or host == '':
         return 814
@@ -72,7 +72,7 @@ def ping(host, plant=None, server=None):  #---------- PROBADO ----------#
             
         except Exception as e:
             if intento == max_attempts - 1:
-                log_processor(plant, server, f"[ERROR] Fallo inesperado haciendo ping a {host}: {e}")
+                log_processor(plant, server, f"[ERROR] Fallo inesperado haciendo ping a {host}: {e}", result_path=result_path)
                 return 813
             time.sleep(delay_between_attempts)
 
@@ -126,7 +126,7 @@ def _find_verified_tunnel_pid(loc_port, dest_host, ssh_port, remote_server):
     return None
 
 
-def create_tunnel(loc_port,dest_host,ssh_port,remote_server,px:bool,plant=None):
+def create_tunnel(loc_port,dest_host,ssh_port,remote_server,px:bool,plant=None,result_path=None):
     if px:
         pid_file = config.PX_PID_FILE
     else:
@@ -137,7 +137,7 @@ def create_tunnel(loc_port,dest_host,ssh_port,remote_server,px:bool,plant=None):
     # interrumpida, o de un servidor previo que no cerró bien su túnel), no
     # debe confundirse silenciosamente con el túnel que estamos por crear.
     if check_tunnel_status(loc_port):
-        log_processor(plant, remote_server, f"[ERROR] El puerto {loc_port} ya tenía un túnel activo antes de crear este (posible túnel huérfano). Cerrándolo primero.")
+        log_processor(plant, remote_server, f"[ERROR] El puerto {loc_port} ya tenía un túnel activo antes de crear este (posible túnel huérfano). Cerrándolo primero.", result_path=result_path)
         alternative_close(loc_port)
 
     # Comando SSH para crear el túnel
@@ -146,7 +146,7 @@ def create_tunnel(loc_port,dest_host,ssh_port,remote_server,px:bool,plant=None):
                    remote_server]
 
     try:
-        log_processor(plant, remote_server, f"Creando túnel a {remote_server} al puerto {ssh_port}")
+        log_processor(plant, remote_server, f"Creando túnel a {remote_server} al puerto {ssh_port}", result_path=result_path)
 
         # Ejecutar el comando SSH directamente con subprocess.run
         # Esto evita problemas con Popen que pueden ocurrir en algunos entornos
@@ -154,14 +154,14 @@ def create_tunnel(loc_port,dest_host,ssh_port,remote_server,px:bool,plant=None):
 
         # Verificar el resultado
         if result.returncode != 0:
-            log_processor(plant, remote_server, f"[ERROR] Error al crear el túnel SSH en {remote_server}. Código de salida: {result.returncode}. Mensaje: {result.stderr}")
+            log_processor(plant, remote_server, f"[ERROR] Error al crear el túnel SSH en {remote_server}. Código de salida: {result.returncode}. Mensaje: {result.stderr}", result_path=result_path)
 
             # Aun así verificamos si el túnel se creó
             tunnel_pid = _find_verified_tunnel_pid(loc_port, dest_host, ssh_port, remote_server)
             if tunnel_pid:
-                log_processor(plant, remote_server, f"A pesar del error, el túnel parece estar activo en puerto {loc_port}")
+                log_processor(plant, remote_server, f"A pesar del error, el túnel parece estar activo en puerto {loc_port}", result_path=result_path)
                 _write_pid_file(pid_file, tunnel_pid)
-                log_processor(plant, remote_server, f"Túnel SSH creado exitosamente (PID: {tunnel_pid})")
+                log_processor(plant, remote_server, f"Túnel SSH creado exitosamente (PID: {tunnel_pid})", result_path=result_path)
                 return True
             return False
 
@@ -173,20 +173,20 @@ def create_tunnel(loc_port,dest_host,ssh_port,remote_server,px:bool,plant=None):
             if tunnel_pid:
                 # Guardar el PID en un archivo
                 _write_pid_file(pid_file, tunnel_pid)
-                log_processor(plant, remote_server, f"Túnel SSH creado exitosamente (PID: {tunnel_pid}). Túnel activo al puerto {ssh_port}")
+                log_processor(plant, remote_server, f"Túnel SSH creado exitosamente (PID: {tunnel_pid}). Túnel activo al puerto {ssh_port}", result_path=result_path)
                 return True
             else:
-                log_processor(plant, remote_server, f"[ERROR] Hay algo escuchando en el puerto {loc_port}, pero no es el túnel esperado hacia {remote_server}. Abortando para no leer datos de otro servidor.")
+                log_processor(plant, remote_server, f"[ERROR] Hay algo escuchando en el puerto {loc_port}, pero no es el túnel esperado hacia {remote_server}. Abortando para no leer datos de otro servidor.", result_path=result_path)
                 return False
         else:
-            log_processor(plant, remote_server, f"[ERROR] Error al crear el túnel SSH. No se detecta actividad en el puerto {loc_port}")
+            log_processor(plant, remote_server, f"[ERROR] Error al crear el túnel SSH. No se detecta actividad en el puerto {loc_port}", result_path=result_path)
             return False
     except Exception as e:
-        log_processor(plant, remote_server, f"[ERROR] Error al crear el túnel SSH: {e}")
+        log_processor(plant, remote_server, f"[ERROR] Error al crear el túnel SSH: {e}", result_path=result_path)
         # Aun así verificamos si el túnel se creó
         tunnel_pid = _find_verified_tunnel_pid(loc_port, dest_host, ssh_port, remote_server)
         if tunnel_pid:
-            log_processor(plant, remote_server, f"A pesar del error, el túnel parece estar activo en puerto {loc_port}")
+            log_processor(plant, remote_server, f"A pesar del error, el túnel parece estar activo en puerto {loc_port}", result_path=result_path)
             _write_pid_file(pid_file, tunnel_pid)
             return True
         return False
@@ -215,54 +215,54 @@ def find_tunnel_pid(loc_port):
         return None
 
 
-def close_tunnel(loc_port, px: bool, plant=None, serv_name=None, _retries: int = 0):
+def close_tunnel(loc_port, px: bool, plant=None, serv_name=None, _retries: int = 0, result_path=None):
     if px:
         pid_file = config.PX_PID_FILE
     else:
         pid_file = config.IA_PID_FILE
 
-    log_processor(plant, serv_name, "Cerrando túnel SSH...")
+    log_processor(plant, serv_name, "Cerrando túnel SSH...", result_path=result_path)
 
     # Leer el PID del archivo o buscarlo
     if not os.path.exists(pid_file):
-        log_processor(plant, serv_name, f"Archivo PID {pid_file} no encontrado. Buscando proceso por puerto...")
+        log_processor(plant, serv_name, f"Archivo PID {pid_file} no encontrado. Buscando proceso por puerto...", result_path=result_path)
         pid = find_tunnel_pid(loc_port)
         if not pid:
-            log_processor(plant, serv_name, f"No se encontró ningún túnel SSH en el puerto {loc_port}")
+            log_processor(plant, serv_name, f"No se encontró ningún túnel SSH en el puerto {loc_port}", result_path=result_path)
             # Verificar una última vez
             if not check_tunnel_status(loc_port):
-                log_processor(plant, serv_name, "No hay ningún túnel activo en el puerto. Nada que cerrar.")
+                log_processor(plant, serv_name, "No hay ningún túnel activo en el puerto. Nada que cerrar.", result_path=result_path)
                 return True
             else:
-                log_processor(plant, serv_name, f"[ERROR] Hay un túnel activo en el puerto {loc_port}, pero no se pudo determinar su PID.")
+                log_processor(plant, serv_name, f"[ERROR] Hay un túnel activo en el puerto {loc_port}, pero no se pudo determinar su PID.", result_path=result_path)
                 return False
     else:
         try:
             with open(pid_file, 'r') as f:
                 pid = int(f.read().strip())
-            log_processor(plant, serv_name, f"PID leído del archivo: {pid}")
+            log_processor(plant, serv_name, f"PID leído del archivo: {pid}", result_path=result_path)
         except Exception as e:
-            log_processor(plant, serv_name, f"[ERROR] Error al leer el archivo PID: {e}")
+            log_processor(plant, serv_name, f"[ERROR] Error al leer el archivo PID: {e}", result_path=result_path)
             pid = find_tunnel_pid(loc_port)
             if not pid:
                 # Si no se encuentra PID pero el túnel está activo
                 if check_tunnel_status(loc_port):
-                    log_processor(plant, serv_name, f"[ERROR] Hay un túnel activo en el puerto {loc_port}, pero no se pudo determinar su PID.")
+                    log_processor(plant, serv_name, f"[ERROR] Hay un túnel activo en el puerto {loc_port}, pero no se pudo determinar su PID.", result_path=result_path)
                     return False
                 return True
 
     # Cerrar el proceso
     try:
         # Intentar terminar el proceso (psutil.terminate/kill funcionan igual en Windows y Linux)
-        log_processor(plant, serv_name, f"Enviando señal de terminación al proceso {pid}...")
+        log_processor(plant, serv_name, f"Enviando señal de terminación al proceso {pid}...", result_path=result_path)
         proceso = psutil.Process(pid)
         proceso.terminate()
 
         try:
             proceso.wait(timeout=2)
-            log_processor(plant, serv_name, f"El proceso {pid} ha terminado")
+            log_processor(plant, serv_name, f"El proceso {pid} ha terminado", result_path=result_path)
         except psutil.TimeoutExpired:
-            log_processor(plant, serv_name, f"El proceso {pid} sigue activo. Forzando terminación...")
+            log_processor(plant, serv_name, f"El proceso {pid} sigue activo. Forzando terminación...", result_path=result_path)
             proceso.kill()
             try:
                 proceso.wait(timeout=1)
@@ -271,7 +271,7 @@ def close_tunnel(loc_port, px: bool, plant=None, serv_name=None, _retries: int =
 
         # Verificar que el túnel esté cerrado
         if not check_tunnel_status(loc_port):
-            log_processor(plant, serv_name, "Túnel cerrado exitosamente.")
+            log_processor(plant, serv_name, "Túnel cerrado exitosamente.", result_path=result_path)
 
             # Eliminar el archivo PID si existe
             if os.path.exists(pid_file):
@@ -279,46 +279,46 @@ def close_tunnel(loc_port, px: bool, plant=None, serv_name=None, _retries: int =
 
             return True
         else:
-            log_processor(plant, serv_name, f"[ERROR] El túnel sigue activo en puerto {loc_port} a pesar de cerrar el proceso. Intentando método alternativo...")
+            log_processor(plant, serv_name, f"[ERROR] El túnel sigue activo en puerto {loc_port} a pesar de cerrar el proceso. Intentando método alternativo...", result_path=result_path)
             alternative_close(loc_port)
 
             # Verificar nuevamente
             if not check_tunnel_status(loc_port):
-                log_processor(plant, serv_name, "Túnel cerrado exitosamente con método alternativo.")
+                log_processor(plant, serv_name, "Túnel cerrado exitosamente con método alternativo.", result_path=result_path)
                 if os.path.exists(pid_file):
                     os.remove(pid_file)
                 return True
             else:
-                log_processor(plant, serv_name, "[ERROR] No se pudo cerrar el túnel. Intente terminar el proceso ssh manualmente.")
+                log_processor(plant, serv_name, "[ERROR] No se pudo cerrar el túnel. Intente terminar el proceso ssh manualmente.", result_path=result_path)
                 return False
 
     except psutil.NoSuchProcess:
-        log_processor(plant, serv_name, f"El proceso {pid} no existe.")
+        log_processor(plant, serv_name, f"El proceso {pid} no existe.", result_path=result_path)
 
         # Verificar si aún existe un túnel en el puerto
         if check_tunnel_status(loc_port):
-            log_processor(plant, serv_name, f"Sin embargo, el puerto {loc_port} sigue en uso. Intentando encontrar el proceso correcto...")
+            log_processor(plant, serv_name, f"Sin embargo, el puerto {loc_port} sigue en uso. Intentando encontrar el proceso correcto...", result_path=result_path)
             new_pid = find_tunnel_pid(loc_port)
             if new_pid:
-                log_processor(plant, serv_name, f"Encontrado nuevo PID: {new_pid}")
+                log_processor(plant, serv_name, f"Encontrado nuevo PID: {new_pid}", result_path=result_path)
                 # Actualizar el PID en el archivo
                 _write_pid_file(pid_file, new_pid)
                 # Intentar de nuevo con el nuevo PID, con límite de reintentos
                 if _retries < config.MAX_RETRIES:
-                    return close_tunnel(loc_port, px, plant, serv_name, _retries + 1)
+                    return close_tunnel(loc_port, px, plant, serv_name, _retries + 1, result_path=result_path)
                 else:
-                    log_processor(plant, serv_name, "[ERROR] Máximo de reintentos alcanzado. No se pudo cerrar el túnel.")
+                    log_processor(plant, serv_name, "[ERROR] Máximo de reintentos alcanzado. No se pudo cerrar el túnel.", result_path=result_path)
                     return False
             else:
-                log_processor(plant, serv_name, "No se pudo encontrar el PID. Intentando método alternativo...")
+                log_processor(plant, serv_name, "No se pudo encontrar el PID. Intentando método alternativo...", result_path=result_path)
                 alternative_close(loc_port)
                 if not check_tunnel_status(loc_port):
-                    log_processor(plant, serv_name, "Túnel cerrado exitosamente con método alternativo.")
+                    log_processor(plant, serv_name, "Túnel cerrado exitosamente con método alternativo.", result_path=result_path)
                     if os.path.exists(pid_file):
                         os.remove(pid_file)
                     return True
                 else:
-                    log_processor(plant, serv_name, "[ERROR] No se pudo cerrar el túnel con método alternativo.")
+                    log_processor(plant, serv_name, "[ERROR] No se pudo cerrar el túnel con método alternativo.", result_path=result_path)
                     return False
 
         # Limpiar el archivo PID si existe
@@ -328,7 +328,7 @@ def close_tunnel(loc_port, px: bool, plant=None, serv_name=None, _retries: int =
         return True
 
     except Exception as e:
-        log_processor(plant, serv_name, f"[ERROR] Error al cerrar el túnel: {e}")
+        log_processor(plant, serv_name, f"[ERROR] Error al cerrar el túnel: {e}", result_path=result_path)
         return False
 
 

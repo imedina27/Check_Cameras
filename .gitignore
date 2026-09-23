@@ -13,8 +13,10 @@ __pycache__/
 .env
 *.env
 
-# Configuración de plantas (contiene datos sensibles de red)
-conf/plants/plants*.yaml
+# Configuración de plantas (contiene datos sensibles de red) — un YAML por
+# cliente en conf/plants/ (y cualquier subcarpeta, ej. other_clients/), salvo
+# la plantilla *.example
+conf/plants/**/*.yaml
 
 # Logs
 *.log

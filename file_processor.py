@@ -56,61 +56,136 @@ class _ColorConsoleFormatter(logging.Formatter):
         return f"{color}{base}{Style.RESET_ALL}" if color else base
 
 
+def _normalize_client_id(stem):
+    """Normaliza el nombre de archivo (sin extensión) a un client_id: por
+    cada segmento separado por '_' sube a mayúscula solo la primera letra
+    si está en minúscula, sin tocar el resto — conserva mayúsculas internas
+    intencionales (ej. 'AbInBev' no se vuelve 'Abinbev'). El '_' se conserva
+    tal cual en el resultado (se usa como separador de palabra, no como
+    espacio, para que la carpeta de resultados nunca tenga espacios).
+    Ej.: 'api_manzanillo' -> 'Api_Manzanillo'; 'Api_manzanillo' -> 'Api_Manzanillo'."""
+    partes = stem.split('_')
+    normalizadas = [p[0].upper() + p[1:] if p and p[0].islower() else p for p in partes]
+    return '_'.join(normalizadas)
+
+
+def discover_client_files():
+    """Descubre los YAML de cliente en conf/plants/ — NO recursivo a
+    propósito: subcarpetas (ej. conf/plants/other_clients/) son la forma de
+    guardar ahí archivos de OTRO entorno (ej. AbInBev en la máquina Windows,
+    de referencia) sin que este programa intente revisarlos — esa máquina no
+    tiene alcance de red a esas plantas. Regresa {client_id: ruta_completa},
+    excluyendo plantillas (*.example no termina en '.yaml')."""
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    plants_dir = os.path.join(current_dir, 'conf', 'plants')
+
+    files = {}
+    try:
+        entradas = sorted(os.listdir(plants_dir))
+    except FileNotFoundError:
+        return files
+
+    for filename in entradas:
+        full_path = os.path.join(plants_dir, filename)
+        if not os.path.isfile(full_path):
+            continue
+        if not filename.endswith('.yaml'):
+            continue
+        stem = filename[:-len('.yaml')]
+        client_id = _normalize_client_id(stem)
+        files[client_id] = full_path
+
+    return files
+
+
+def _load_active_servers(client_id, filepath):
+    """Carga los servidores activos (activate == 1) de un archivo de
+    cliente, inyectando 'client' y 'result_path' (RESULT_PATH/client_id) en
+    cada uno — mismo patrón que ya llevan 'plant'/'serv_name' por el resto
+    del código."""
+    with open(filepath, 'r', encoding='utf-8') as archivo:
+        content = yaml.safe_load(archivo)
+
+    result_path = os.path.join(config.RESULT_PATH, client_id)
+    active = {}
+    for serv in (content or {}).get('servers', []) or []:
+        if serv.get('activate') == 1:
+            serv = dict(serv)
+            serv['client'] = client_id
+            serv['result_path'] = result_path
+            active[serv.get('serv_name')] = serv
+    return active
+
+
+def _load_all_active_servers():
+    """(codigo, active_servers) combinando TODOS los archivos de cliente
+    descubiertos. Un archivo individual con YAML malformado no tumba a los
+    demás — se reporta y se sigue con el resto (mismo criterio de
+    aislamiento de fallas que ya usa _CheckServerSafe())."""
+    files = discover_client_files()
+    if not files:
+        return (903, {})
+
+    print(f"[INFO] Clientes detectados en conf/plants/: {', '.join(sorted(files))}")
+
+    active_servers = {}
+    for client_id, filepath in files.items():
+        try:
+            active_servers.update(_load_active_servers(client_id, filepath))
+        except yaml.YAMLError:
+            print(f"[ERROR] No se pudo parsear {filepath} (YAML inválido) — se omite ese cliente")
+            continue
+
+    if not active_servers:
+        return (901, {})
+    return (900, active_servers)
+
+
 def InfoPlant(plant, server):                                               #---------- PROBADO ----------#
     try:
-        # Obtener ruta del archivo YAML relativa al script
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        path_file = os.path.join(current_dir, 'conf', 'plants', config.PLANTS_FILE)
+        codigo, active_servers = _load_all_active_servers()
+        if codigo != 900:
+            return (codigo, {})
 
-        # Intentar abrir el archivo
-        try:
-            print(f"[INFO] Cargando configuración de plantas: {config.PLANTS_FILE}")
-            with open(path_file, 'r', encoding='utf-8') as archivo:
-                content = yaml.safe_load(archivo)
-        except FileNotFoundError:
-            return (903, {})
-        except yaml.YAMLError:
-            return (904, {})
-        
-        servers = content.get('servers', [])
-
-        active_servers = {}
-        for serv_nam in servers:
-            if serv_nam.get('activate') == 1:
-                serv_name = serv_nam.get('serv_name')
-                active_servers[serv_name] = serv_nam
-        
-        # Si no hay servidores activos
-        if len(active_servers) == 0:
-            return (901, {})
-                
         # Caso: Retornar todos los servidores activos
         if plant == 'ALL':
             return (900, active_servers)
 
         # Caso: Buscar una planta
         if plant is not None:
-            result = {}
-            for serv_name, dat_server in active_servers.items():
-                if dat_server.get('plant') == plant:
-                    result[serv_name] = dat_server
-            
-            if len(result) == 0:
-                return (901, {})
-            
-            return (900, result)
-        
+            result = {sn: ds for sn, ds in active_servers.items() if ds.get('plant') == plant}
         else:
-            result = {}
-            for serv_name, dat_server in active_servers.items():
-                if dat_server.get('serv_name') == server:
-                    result[serv_name] = dat_server
-        
-            if len(result) == 0:
-                return (901, {})
+            result = {sn: ds for sn, ds in active_servers.items() if ds.get('serv_name') == server}
 
-            return (900, result)
-        
+        if len(result) == 0:
+            return (901, {})
+
+        return (900, result)
+
+    except Exception as e:
+        print(f"[ERROR] Fallo inesperado leyendo la configuración de plantas: {e}")
+        return (905, {})
+
+
+def InfoClient(client):
+    """Igual que InfoPlant, pero para '--client': sin filtrar por planta ni
+    servidor, trae TODOS los servidores activos del archivo del cliente
+    pedido (o de todos, si client es None/'ALL')."""
+    try:
+        codigo, active_servers = _load_all_active_servers()
+        if codigo != 900:
+            return (codigo, {})
+
+        if client is None or client.upper() == 'ALL':
+            return (900, active_servers)
+
+        result = {sn: ds for sn, ds in active_servers.items() if ds.get('client', '').upper() == client.upper()}
+
+        if len(result) == 0:
+            return (901, {})
+
+        return (900, result)
+
     except Exception as e:
         print(f"[ERROR] Fallo inesperado leyendo la configuración de plantas: {e}")
         return (905, {})
@@ -230,16 +305,16 @@ def _get_server_logger(log_file, plant_label):
         return logger
 
 
-def _server_log_path(plant, server):
-    result_dir = dirs_path(plant, server)
+def _server_log_path(plant, server, result_path=None):
+    result_dir = dirs_path(plant, server, result_path=result_path)
     plant_label = plant if plant is not None else "error"
     server_name = server.upper() if server else plant_label.upper()
     return os.path.join(result_dir, f"{server_name}.log")
 
 
-def log_processor(plant, server, status_code, prefix="", proceso=None):     #---------- PROBADO ----------#
+def log_processor(plant, server, status_code, prefix="", proceso=None, result_path=None):     #---------- PROBADO ----------#
     plant_label = plant if plant is not None else "error"
-    log_file = _server_log_path(plant, server)
+    log_file = _server_log_path(plant, server, result_path=result_path)
 
     logger = _get_server_logger(log_file, plant_label)
 
@@ -301,13 +376,13 @@ def is_success_code(status_code):                                          #----
     return config.STATUS_MESSAGES.get(status_code, "").startswith("[SUCCESS]")
 
 
-def log_camera_time(plant, server, alias, elapsed_seconds):                 #---------- PROBADO ----------#
+def log_camera_time(plant, server, alias, elapsed_seconds, result_path=None):                 #---------- PROBADO ----------#
     """Registra cuánto tardó el proceso completo de una cámara (Cam_Up +
     Cam_AI_Image + Cam_Image + Cam_Config): verde si quedó dentro de
     config.CAM_TIME_THRESHOLD, amarillo si lo excedió. Es solo visibilidad,
     no cancela ni omite nada."""
     plant_label = plant if plant is not None else "error"
-    log_file = _server_log_path(plant, server)
+    log_file = _server_log_path(plant, server, result_path=result_path)
 
     logger = _get_server_logger(log_file, plant_label)
     mensaje = f"{alias}: Tiempo de proceso {elapsed_seconds:.2f}s"
@@ -371,12 +446,12 @@ def _render_camera_section(camera_results):
     return lines
 
 
-def checkpoint_server_log(plant, server):
+def checkpoint_server_log(plant, server, result_path=None):
     """Posición actual (bytes) del log de este servidor, justo antes de
     empezar a revisar cámaras — para que replace_camera_section() pueda
     recortar de vuelta a este punto y reemplazar solo esa sección, sin
     tocar el encabezado/túneles/YAML que ya se escribieron antes."""
-    log_file = _server_log_path(plant, server)
+    log_file = _server_log_path(plant, server, result_path=result_path)
     plant_label = plant if plant is not None else "error"
     logger = _get_server_logger(log_file, plant_label)
     for handler in logger.handlers:
@@ -390,7 +465,7 @@ def checkpoint_server_log(plant, server):
     return None
 
 
-def replace_camera_section(plant, server, checkpoint, camera_results):
+def replace_camera_section(plant, server, checkpoint, camera_results, result_path=None):
     """Recorta el log de este servidor de vuelta al punto marcado por
     checkpoint_server_log() y escribe en su lugar el bloque de cámaras ya
     ordenado alfabéticamente y tabulado — reemplaza las líneas que se
@@ -399,7 +474,7 @@ def replace_camera_section(plant, server, checkpoint, camera_results):
     cámara completa a la vez."""
     if checkpoint is None:
         return
-    log_file = _server_log_path(plant, server)
+    log_file = _server_log_path(plant, server, result_path=result_path)
     plant_label = plant if plant is not None else "error"
     logger = _get_server_logger(log_file, plant_label)
 
@@ -418,13 +493,13 @@ def replace_camera_section(plant, server, checkpoint, camera_results):
                 handler.release()
 
 
-def dirs_path(plant=None, server=None):                                     #---------- PROBADO ----------#
+def dirs_path(plant=None, server=None, result_path=None):                   #---------- PROBADO ----------#
     date_now = datetime.now()
     month_dir = f"{date_now.month:02d}- {MESES_ES[date_now.month]}"
     text_date = date_now.strftime("%d%m%y")
 
     # Construir partes de la ruta solo si tienen valor
-    parts = [config.RESULT_PATH, month_dir, text_date]
+    parts = [result_path or config.RESULT_PATH, month_dir, text_date]
     if plant:
         parts.append(plant)
     if server:
@@ -489,8 +564,8 @@ def read_yaml(url, plant=None, server=None):                                #---
         return 415, None
     
 
-def save_img(cam_img, plant, serv_name, cam_name, ai):                      #---------- PROBADO ----------#
-    plant_dir = dirs_path(plant, serv_name)
+def save_img(cam_img, plant, serv_name, cam_name, ai, result_path=None):    #---------- PROBADO ----------#
+    plant_dir = dirs_path(plant, serv_name, result_path=result_path)
     if ai:
         path_img = os.path.join(plant_dir, f"{cam_name}_ai.jpg")
     else:
@@ -514,9 +589,9 @@ def save_img(cam_img, plant, serv_name, cam_name, ai):                      #---
                 return cam_img
     
 
-def save_json(cam_json, plant, serv_name, cam_name):                        #---------- PROBADO ----------#
+def save_json(cam_json, plant, serv_name, cam_name, result_path=None):      #---------- PROBADO ----------#
 
-    plant_dir = dirs_path(plant, serv_name)
+    plant_dir = dirs_path(plant, serv_name, result_path=result_path)
     file_path = os.path.join(plant_dir, f"{cam_name}.json")
 
     with open(file_path, "w", encoding="utf-8") as archivo:
@@ -541,15 +616,33 @@ def _failure_sort_key(cam):
 
 
 def write_summary(server_results):                                         #---------- PROBADO ----------#
-    """Genera el resumen de una corrida con varios servidores (--plant all o
-    CheckPlant con varios servidores encontrados): totales de servidores/
-    cámaras, y el detalle por planta de las cámaras que fallaron y en qué.
-    Se guarda como resumen_dd-mm-aaaa.log en la carpeta del día."""
-    day_dir = dirs_path()
+    """Genera el resumen de una corrida con varios servidores (--plant all,
+    --client all/<nombre>, o CheckPlant con varios servidores encontrados).
+    Agrupa por 'result_path' (un servidor sin ese campo cae al RESULT_PATH
+    global) y genera un resumen_dd-mm-aaaa.log POR CADA cliente presente —
+    una corrida de --client all no mezcla los resultados de varios clientes
+    en un solo resumen."""
     date_str = datetime.now().strftime("%d-%m-%Y")
-    summary_file = os.path.join(day_dir, f"resumen_{date_str}.log")
     sort_key = get_sort_key(config.LOG_SORT_STRATEGY)
 
+    grupos = {}
+    for r in server_results:
+        grupos.setdefault(r.get("result_path") or config.RESULT_PATH, []).append(r)
+
+    summary_files = []
+    for result_path, resultados in grupos.items():
+        day_dir = dirs_path(result_path=result_path)
+        summary_file = os.path.join(day_dir, f"resumen_{date_str}.log")
+        text = _render_summary_text(resultados, sort_key)
+        with open(summary_file, "w", encoding="utf-8") as f:
+            f.write(text + "\n")
+        print(text)
+        summary_files.append(summary_file)
+
+    return summary_files
+
+
+def _render_summary_text(server_results, sort_key):                       #---------- PROBADO ----------#
     servers_ok = [r for r in server_results if r["problem"] is None]
     servers_problem = [r for r in server_results if r["problem"] is not None]
 
@@ -636,8 +729,4 @@ def write_summary(server_results):                                         #----
                 fails = "; ".join(cam["failures"])
                 lines.append(f"  - {tag}  {ip}  {fails}")
 
-    text = "\n".join(lines)
-    with open(summary_file, "w", encoding="utf-8") as f:
-        f.write(text + "\n")
-    print(text)
-    return summary_file
+    return "\n".join(lines)

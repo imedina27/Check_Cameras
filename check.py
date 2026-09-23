@@ -1,4 +1,4 @@
-from file_processor import InfoPlant, InfoCam_url, read_yaml, log_processor
+from file_processor import InfoPlant, InfoClient, InfoCam_url, read_yaml, log_processor
 from file_processor import status_text, is_success_code, write_summary, log_camera_time
 from file_processor import checkpoint_server_log, replace_camera_section
 from system_processor import ping, name_host, create_tunnel, close_tunnel
@@ -38,6 +38,21 @@ def CheckPlant(plant, server):                  #---------- PROBADO ----------#
         write_summary(results)
 
 
+def CheckClient(client):                        #---------- PROBADO ----------#
+    """--client <nombre>: revisa TODOS los servidores activos del archivo de
+    ese cliente (a diferencia de --plant, que filtra por el campo 'plant' de
+    cada servidor). '--client all' no pasa por aquí — es equivalente a
+    CheckAll(), que ya recorre todos los clientes descubiertos."""
+    codigo, dat_servers = InfoClient(client)
+
+    if codigo != 900:
+        log_processor(None, None, codigo)
+        return
+
+    results = [_CheckServerSafe(dat_server) for _, dat_server in dat_servers.items()]
+    write_summary(results)
+
+
 def _clean_status(status_code):
     """status_text() sin espacios de relleno (esos solo alinean columnas en
     el log principal; embebidos en una frase del resumen se ven raros)."""
@@ -48,6 +63,7 @@ def _new_server_result(dat_server, problem=None, problem_type="sin_conexion"):
     return {
         'serv_name': dat_server.get('serv_name', 'DESCONOCIDO'),
         'plant': dat_server.get('plant', 'DESCONOCIDO'),
+        'result_path': dat_server.get('result_path') or config.RESULT_PATH,
         'problem': problem,
         'problem_type': problem_type,
         'cameras': [],
@@ -63,7 +79,8 @@ def _CheckServerSafe(dat_server):
     except Exception as e:
         serv_name = dat_server.get('serv_name', 'DESCONOCIDO')
         plant = dat_server.get('plant', 'DESCONOCIDO')
-        log_processor(plant, serv_name, f"[ERROR] Fallo inesperado revisando el servidor: {e}")
+        log_processor(plant, serv_name, f"[ERROR] Fallo inesperado revisando el servidor: {e}",
+                      result_path=dat_server.get('result_path'))
         return _new_server_result(dat_server, problem=f"Fallo inesperado: {e}")
 
 
@@ -71,7 +88,7 @@ REQUIRED_SERVER_KEYS = ['serv_name', 'plant', 'type', 'addresses', 'proxy_port',
 REQUIRED_ADDRESS_KEYS = ['local', 'cameras', 'zerotier']
 
 
-def _process_camera(alias, cam, serv_name, plant, ai_port, proxy_ip, proxy_port):
+def _process_camera(alias, cam, serv_name, plant, ai_port, proxy_ip, proxy_port, result_path=None):
     """Revisa una sola cámara completa (Cam_Up + Cam_AI_Image + Cam_Image +
     Cam_Config) y regresa su resultado. Cada línea de log lleva el alias de
     la cámara al frente, porque varias cámaras corren en paralelo y sus
@@ -87,7 +104,7 @@ def _process_camera(alias, cam, serv_name, plant, ai_port, proxy_ip, proxy_port)
 
     # Generar el objeto cámara
     cam_host = Camera(alias, brand, cam_ip, cam_user, cam_pass,
-                    serv_name, plant, ai_port, proxy_ip, proxy_port, channel)
+                    serv_name, plant, ai_port, proxy_ip, proxy_port, channel, result_path=result_path)
 
     # 'steps' guarda (hora, proceso, status_code) de cada paso que sí corrió —
     # junto con 'hora_ip'/'hora_tiempo'/'elapsed', es lo que necesita
@@ -101,28 +118,28 @@ def _process_camera(alias, cam, serv_name, plant, ai_port, proxy_ip, proxy_port)
     # Verificar el puerto 80 de la cámara
     camera_result['hora_ip'] = datetime.now().strftime('%H:%M:%S')
     cam_up = cam_host.Cam_Up()
-    log_processor(plant, serv_name, f"{alias} IP: {cam_ip}")
-    log_processor(plant, serv_name, cam_up, alias_tag, proceso="Puerto 80")
+    log_processor(plant, serv_name, f"{alias} IP: {cam_ip}", result_path=result_path)
+    log_processor(plant, serv_name, cam_up, alias_tag, proceso="Puerto 80", result_path=result_path)
     camera_result['steps'].append((datetime.now().strftime('%H:%M:%S'), "Puerto 80", cam_up))
 
     if cam_up == 100:
         # Descargar la imagen de la IA
         ia_image = cam_host.Cam_AI_Image()
-        log_processor(plant, serv_name, ia_image, alias_tag, proceso="Imagen IA")
+        log_processor(plant, serv_name, ia_image, alias_tag, proceso="Imagen IA", result_path=result_path)
         camera_result['steps'].append((datetime.now().strftime('%H:%M:%S'), "Imagen IA", ia_image))
         if not is_success_code(ia_image):
             camera_result['failures'].append(f"Imagen IA: {_clean_status(ia_image)}")
 
         # Descargar la imagen de la cámara
         cam_image = cam_host.Cam_Image()
-        log_processor(plant, serv_name, cam_image, alias_tag, proceso="Imagen cámara")
+        log_processor(plant, serv_name, cam_image, alias_tag, proceso="Imagen cámara", result_path=result_path)
         camera_result['steps'].append((datetime.now().strftime('%H:%M:%S'), "Imagen cámara", cam_image))
         if not is_success_code(cam_image):
             camera_result['failures'].append(f"Imagen cámara: {_clean_status(cam_image)}")
 
         # Descargar la configuración de la cámara
         cam_conf = cam_host.Cam_Config()
-        log_processor(plant, serv_name, cam_conf, alias_tag, proceso="Configuración")
+        log_processor(plant, serv_name, cam_conf, alias_tag, proceso="Configuración", result_path=result_path)
         camera_result['steps'].append((datetime.now().strftime('%H:%M:%S'), "Configuración", cam_conf))
         if not is_success_code(cam_conf):
             camera_result['failures'].append(f"Configuración: {_clean_status(cam_conf)}")
@@ -131,19 +148,19 @@ def _process_camera(alias, cam, serv_name, plant, ai_port, proxy_ip, proxy_port)
 
     camera_result['complete'] = len(camera_result['failures']) == 0
     elapsed = time.perf_counter() - inicio_camara
-    log_camera_time(plant, serv_name, alias, elapsed)
+    log_camera_time(plant, serv_name, alias, elapsed, result_path=result_path)
     camera_result['elapsed'] = elapsed
     camera_result['hora_tiempo'] = datetime.now().strftime('%H:%M:%S')
     return camera_result
 
 
-def _process_camera_safe(alias, cam, serv_name, plant, ai_port, proxy_ip, proxy_port):
+def _process_camera_safe(alias, cam, serv_name, plant, ai_port, proxy_ip, proxy_port, result_path=None):
     """Aísla errores de una cámara para que no tumbe a las demás que se
     están procesando en paralelo."""
     try:
-        return _process_camera(alias, cam, serv_name, plant, ai_port, proxy_ip, proxy_port)
+        return _process_camera(alias, cam, serv_name, plant, ai_port, proxy_ip, proxy_port, result_path=result_path)
     except Exception as e:
-        log_processor(plant, serv_name, f"[ERROR] {alias}: fallo inesperado procesando la cámara: {e}")
+        log_processor(plant, serv_name, f"[ERROR] {alias}: fallo inesperado procesando la cámara: {e}", result_path=result_path)
         return {'alias': alias, 'ip': '', 'failures': [f"Fallo inesperado: {e}"], 'complete': False, 'steps': []}
 
 
@@ -153,7 +170,8 @@ def CheckServer(dat_server):                    #---------- PROBADO ----------#
     if missing:
         serv_name = dat_server.get('serv_name', 'DESCONOCIDO')
         plant = dat_server.get('plant', 'DESCONOCIDO')
-        log_processor(plant, serv_name, f"[ERROR] Configuración incompleta, faltan campos: {', '.join(missing)}")
+        log_processor(plant, serv_name, f"[ERROR] Configuración incompleta, faltan campos: {', '.join(missing)}",
+                      result_path=dat_server.get('result_path'))
         return _new_server_result(dat_server, problem=f"Configuración incompleta, faltan campos: {', '.join(missing)}")
 
     if isinstance(dat_server['addresses'], dict):
@@ -162,7 +180,8 @@ def CheckServer(dat_server):                    #---------- PROBADO ----------#
         missing_addr = REQUIRED_ADDRESS_KEYS
     if missing_addr:
         log_processor(dat_server['plant'], dat_server['serv_name'],
-                      f"[ERROR] Configuración incompleta en 'addresses', faltan campos: {', '.join(missing_addr)}")
+                      f"[ERROR] Configuración incompleta en 'addresses', faltan campos: {', '.join(missing_addr)}",
+                      result_path=dat_server.get('result_path'))
         return _new_server_result(dat_server, problem=f"Configuración incompleta en 'addresses', faltan campos: {', '.join(missing_addr)}")
 
     # Datos básicos
@@ -170,6 +189,7 @@ def CheckServer(dat_server):                    #---------- PROBADO ----------#
     plant =  dat_server['plant']
     cam_activate = dat_server.get('cam_activate', False)
     type = dat_server['type']
+    result_path = dat_server.get('result_path') or config.RESULT_PATH
 
     # Direcciones
     local_ip = dat_server['addresses']['local']
@@ -183,42 +203,42 @@ def CheckServer(dat_server):                    #---------- PROBADO ----------#
     server_result = _new_server_result(dat_server)
 
     # Iniciar el LOG
-    log_processor(plant, serv_name, f"{'='*60}")
+    log_processor(plant, serv_name, f"{'='*60}", result_path=result_path)
 
     # Hacer ping al servidor y Enviar el resultado al LOG
-    log_processor(plant, serv_name, f"Ping to Server {serv_name} on Plant {plant}")
-    
+    log_processor(plant, serv_name, f"Ping to Server {serv_name} on Plant {plant}", result_path=result_path)
+
     # Determinar qué IP usar según los pings exitosos
     # Ping Zerotier
-    result_pingZero = ping(zerotier_ip, plant, serv_name)
+    result_pingZero = ping(zerotier_ip, plant, serv_name, result_path=result_path)
 
     if result_pingZero == 800:
-        log_processor(plant, serv_name, "Zerotier IP")
-        log_processor(plant, serv_name, result_pingZero)
+        log_processor(plant, serv_name, "Zerotier IP", result_path=result_path)
+        log_processor(plant, serv_name, result_pingZero, result_path=result_path)
         selected_ip = zerotier_ip
 
     else:
         # Ping Local
-        result_pinglocal = ping(local_ip, plant, serv_name)
+        result_pinglocal = ping(local_ip, plant, serv_name, result_path=result_path)
         if result_pinglocal == 800:
-            log_processor(plant, serv_name, "Local IP")
-            log_processor(plant, serv_name, result_pinglocal)
-            log_processor(plant, serv_name, f"{'='*60}")
+            log_processor(plant, serv_name, "Local IP", result_path=result_path)
+            log_processor(plant, serv_name, result_pinglocal, result_path=result_path)
+            log_processor(plant, serv_name, f"{'='*60}", result_path=result_path)
             selected_ip = local_ip
 
         else:
             # Ping Cameras
-            result_pingcameras = ping(cameras_ip, plant, serv_name)
+            result_pingcameras = ping(cameras_ip, plant, serv_name, result_path=result_path)
             if result_pingcameras == 800:
-                log_processor(plant, serv_name, "Cameras IP")
-                log_processor(plant, serv_name, result_pingcameras)
-                log_processor(plant, serv_name, f"{'='*60}")
+                log_processor(plant, serv_name, "Cameras IP", result_path=result_path)
+                log_processor(plant, serv_name, result_pingcameras, result_path=result_path)
+                log_processor(plant, serv_name, f"{'='*60}", result_path=result_path)
                 selected_ip = cameras_ip
 
             else:
                 # Ninguna IP disponible
-                log_processor(plant, serv_name, "[ERROR] Not IP available")
-                log_processor(plant, serv_name, f"{'='*60}")
+                log_processor(plant, serv_name, "[ERROR] Not IP available", result_path=result_path)
+                log_processor(plant, serv_name, f"{'='*60}", result_path=result_path)
                 selected_ip = None
                 return _new_server_result(dat_server, problem="Sin IP disponible (zerotier/local/cámaras)")
    
@@ -241,17 +261,17 @@ def CheckServer(dat_server):                    #---------- PROBADO ----------#
     # Servidor remoto por tunel
     elif type == "tunnels":
         proxy_ip = "localhost"
-        create_tunnel(px_loc_port, proxy_ip, proxy_port, serv_name, True, plant)
-        log_processor(plant, serv_name, f"{'='*60}")
+        create_tunnel(px_loc_port, proxy_ip, proxy_port, serv_name, True, plant, result_path=result_path)
+        log_processor(plant, serv_name, f"{'='*60}", result_path=result_path)
         tunn_px = True
         proxy_port = px_loc_port
-        
+
     yaml_failures = []
 
     for ia_port in ia_ports:
         if type == "tunnels":
-            create_tunnel(ia_loc_port,"localhost",ia_port, serv_name, False, plant)
-            log_processor(plant, serv_name, f"{'='*60}")
+            create_tunnel(ia_loc_port,"localhost",ia_port, serv_name, False, plant, result_path=result_path)
+            log_processor(plant, serv_name, f"{'='*60}", result_path=result_path)
             tunn_ia = True
             url_yaml = f"http://localhost:{ia_loc_port}/cameras"
             ai_port = ia_loc_port
@@ -264,7 +284,7 @@ def CheckServer(dat_server):                    #---------- PROBADO ----------#
         status_code, cameras_data = read_yaml(url_yaml, plant, serv_name)
 
         # Status - loggear
-        log_processor(plant, serv_name, status_code)
+        log_processor(plant, serv_name, status_code, result_path=result_path)
 
         if status_code != 400:
             yaml_failures.append(f"puerto {ia_port}: {_clean_status(status_code)}")
@@ -272,7 +292,7 @@ def CheckServer(dat_server):                    #---------- PROBADO ----------#
             # línea de error queda pegada directo con el cierre de túneles
             # de más abajo, sin nada que marque dónde termina un bloque y
             # empieza el otro.
-            log_processor(plant, serv_name, f"{'='*60}")
+            log_processor(plant, serv_name, f"{'='*60}", result_path=result_path)
 
         # Procesar resultado
         if status_code == 400:
@@ -285,33 +305,33 @@ def CheckServer(dat_server):                    #---------- PROBADO ----------#
 
             total_cam = len(cameras_data['Cameras'])
             total_act = len(active_cam)
-            
+
             port_yaml = (f"Total de camaras {total_cam}, Camaras Activas {total_act} en el puerto: {ia_port}")
-            log_processor(plant, serv_name, port_yaml)
-            log_processor(plant, serv_name, f"{'='*60}")
-            log_processor(plant, serv_name, "")
+            log_processor(plant, serv_name, port_yaml, result_path=result_path)
+            log_processor(plant, serv_name, f"{'='*60}", result_path=result_path)
+            log_processor(plant, serv_name, "", result_path=result_path)
 
             # Punto de corte antes de revisar cámaras: replace_camera_section()
             # recorta de vuelta a aquí y reemplaza lo que se haya escrito desde
             # este momento por el bloque ya ordenado (encabezado/túneles/YAML
             # de arriba no se tocan).
-            checkpoint = checkpoint_server_log(plant, serv_name)
+            checkpoint = checkpoint_server_log(plant, serv_name, result_path=result_path)
 
             # Revisar las cámaras de este servidor en paralelo (no así los
             # servidores entre sí, por el puerto compartido de los túneles)
             batch_cameras = []
             with concurrent.futures.ThreadPoolExecutor(max_workers=config.MAX_CAMERA_WORKERS) as executor:
                 futures = [
-                    executor.submit(_process_camera_safe, alias, cam, serv_name, plant, ai_port, proxy_ip, proxy_port)
+                    executor.submit(_process_camera_safe, alias, cam, serv_name, plant, ai_port, proxy_ip, proxy_port, result_path=result_path)
                     for alias, cam in active_cam.items()
                 ]
                 for future in concurrent.futures.as_completed(futures):
                     batch_cameras.append(future.result())
 
             server_result['cameras'].extend(batch_cameras)
-            replace_camera_section(plant, serv_name, checkpoint, batch_cameras)
+            replace_camera_section(plant, serv_name, checkpoint, batch_cameras, result_path=result_path)
 
-            log_processor(plant, serv_name, f"{'='*60}")
+            log_processor(plant, serv_name, f"{'='*60}", result_path=result_path)
 
         # Cerrar tunel IA — fuera del "if status_code == 400" a propósito: si
         # el YAML falla, el túnel se abrió igual y debe cerrarse igual. Antes
@@ -321,17 +341,17 @@ def CheckServer(dat_server):                    #---------- PROBADO ----------#
         # encontrado en producción: QBYMSPROD08 -> VALLE -> GUADALAJARA ->
         # ATLANTICO, todos fallando en cascada por el mismo puerto atascado).
         if tunn_ia:
-            close_tunnel(ia_loc_port, False, plant, serv_name)
+            close_tunnel(ia_loc_port, False, plant, serv_name, result_path=result_path)
             tunn_ia = False
-            log_processor(plant, serv_name, f"{'='*60}")
+            log_processor(plant, serv_name, f"{'='*60}", result_path=result_path)
 
         # Cerrar tunel PX
         if tunn_px:
-            close_tunnel(px_loc_port, True, plant, serv_name)
+            close_tunnel(px_loc_port, True, plant, serv_name, result_path=result_path)
             tunn_px = False
-            log_processor(plant, serv_name, f"{'='*60}")
+            log_processor(plant, serv_name, f"{'='*60}", result_path=result_path)
 
-        log_processor(plant, serv_name, "")
+        log_processor(plant, serv_name, "", result_path=result_path)
 
     if not server_result['cameras'] and yaml_failures:
         server_result['problem'] = "No se pudo leer el YAML de cámaras (" + "; ".join(yaml_failures) + ")"

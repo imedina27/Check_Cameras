@@ -20,10 +20,10 @@ Después, crea tu configuración local a partir de las plantillas (ver siguiente
 
 ```bash
 cp .env.example .env
-cp conf/plants/plants.yaml.example conf/plants/plants.yaml
+cp conf/plants/plants.yaml.example "conf/plants/Nombre_Cliente.yaml"
 ```
 
-Y ajusta ambos archivos con los datos reales de tu red — **ninguno de los dos se sube al repositorio** (están en `.gitignore` porque traen direcciones IP internas y rutas específicas de cada máquina).
+Y ajusta ambos archivos con los datos reales de tu red — **ninguno se sube al repositorio** (están en `.gitignore` porque traen direcciones IP internas y rutas específicas de cada máquina).
 
 ## Los dos entornos de ejecución
 
@@ -32,7 +32,7 @@ El programa es puramente de línea de comandos a propósito, porque corre en dos
 - **Windows (máquina local):** tiene una VPN Zerotier que ve las plantas remotamente.
 - **Ubuntu Server:** ve a los demás servidores directamente por red, sin VPN. Aquí normalmente hace falta túnel SSH (`type: tunnels`) para alcanzar servidores fuera de su red directa.
 
-Cada entorno tiene su propio `.env` y su propio archivo de plantas (`PLANTS_FILE` decide cuál se carga) — no son intercambiables, cada uno refleja las IPs/puertos que esa máquina específica puede alcanzar.
+Cada entorno tiene su propio `.env` y sus propios archivos de cliente en `conf/plants/` — no son intercambiables, cada uno refleja las IPs/puertos que esa máquina específica puede alcanzar. Un archivo de cliente que no aplique a esa máquina (ej. un cliente de Ubuntu, guardado de referencia en la máquina Windows) se guarda en una subcarpeta cualquiera dentro de `conf/plants/` (ej. `conf/plants/other_clients/`) — el descubrimiento de clientes **no** es recursivo a propósito, así que cualquier subcarpeta queda automáticamente fuera de la revisión.
 
 ## Configuración
 
@@ -43,8 +43,7 @@ Ver `.env.example` para la plantilla completa con todos los valores y sus coment
 | Variable | Para qué sirve |
 | --- | --- |
 | `LOCAL_HOST` | Nombre de esta máquina; el programa lo usa para detectar si el servidor a revisar es "este mismo servidor". |
-| `RESULT_PATH` | Carpeta raíz donde se guardan resultados (imágenes, JSON, logs, resumen). |
-| `PLANTS_FILE` | Qué archivo de `conf/plants/` cargar — distinto por entorno (ver arriba). |
+| `RESULT_PATH` | Prefijo común de resultados. Cada cliente descubierto en `conf/plants/*.yaml` cuelga de aquí en su propia subcarpeta (`RESULT_PATH/<client_id>/...`), creada sola si no existe. |
 | `MAX_PING_ATTEMPTS`, `PING_TIMEOUT`, `RETRY_DELAY` | Reintentos/tiempos del ping a los servidores. |
 | `MAX_CAMERA_RETRIES`, `CAMERA_PORT_TIMEOUT`, `PORT80_DELAY` | Reintentos/tiempos al revisar el puerto 80 de cada cámara. |
 | `MAX_AI_RETRIES`, `AI_IMAGE_TIMEOUT` | Reintentos/tiempo al pedir la imagen procesada por IA. |
@@ -57,9 +56,9 @@ Ver `.env.example` para la plantilla completa con todos los valores y sus coment
 | `MAX_CAMERA_WORKERS` | Cuántas cámaras de un mismo servidor se revisan en paralelo. |
 | `LOG_SORT_STRATEGY` | Orden de servidores/plantas en el resumen (ver `sort_strategies.py`). `alphabetical` (por nombre) o `numeric_suffix` (por el número al final del nombre del servidor, ej. `QLYMSPROD01`, `QLYMSPROD02`...). |
 
-### `plants.yaml`
+### Archivos de cliente (`conf/plants/*.yaml`)
 
-Ver `conf/plants/plants.yaml.example` para la plantilla. Es una lista de servidores bajo la clave `servers`, cada uno con:
+Un archivo YAML **por cliente** en `conf/plants/` — no un solo archivo mezclando todos los clientes. Cada uno es una lista de servidores bajo la clave `servers` (ver `conf/plants/plants.yaml.example` para la plantilla); mismo esquema para todos los clientes:
 
 | Campo | Para qué sirve |
 | --- | --- |
@@ -72,20 +71,34 @@ Ver `conf/plants/plants.yaml.example` para la plantilla. Es una lista de servido
 | `proxy_port` | Puerto del proxy en el servidor remoto. |
 | `ia_ports` | Uno o varios puertos donde corre el servicio de IA en ese servidor — se revisan todos, cada uno con su propio lote de cámaras. |
 
+**Nombre del archivo → `client_id`:** el programa descubre automáticamente todos los `*.yaml` directamente dentro de `conf/plants/` (no busca en subcarpetas) y deriva un `client_id` del nombre de archivo (sin extensión): por cada segmento separado por `_` sube a mayúscula solo la primera letra si está en minúscula, sin tocar el resto — así conserva mayúsculas internas intencionales. Convención: CamelCase con `_` como separador de palabra, sin espacios (para que funcione igual en Ubuntu). Ejemplos:
+
+| Archivo | `client_id` (= carpeta de resultados, `RESULT_PATH/<client_id>/`) |
+| --- | --- |
+| `Api_Manzanillo.yaml` | `Api_Manzanillo` |
+| `api_manzanillo.yaml` | `Api_Manzanillo` |
+| `AbInBev.yaml` | `AbInBev` (no se convierte a `Abinbev`) |
+
+Un YAML que no deba revisarse desde esta máquina (ej. el de otro entorno, guardado solo de referencia) va en cualquier subcarpeta de `conf/plants/` — el descubrimiento no es recursivo, así que nunca se toca.
+
 ## Uso
 
 ```bash
-# Revisar todas las plantas activas
+# Revisar TODOS los clientes/plantas activos
 pipenv run python main.py --plant all
+# (equivalente: pipenv run python main.py --client all)
 
-# Revisar una planta específica
+# Revisar un solo cliente completo (todos sus servidores)
+pipenv run python main.py --client Api_Manzanillo
+
+# Revisar una planta específica (busca en todos los clientes descubiertos)
 pipenv run python main.py --plant nombre_planta
 
-# Revisar un servidor específico
+# Revisar un servidor específico (busca en todos los clientes descubiertos)
 pipenv run python main.py --server nombre_servidor
 ```
 
-`--plant` y `--server` son mutuamente excluyentes — se usa uno u otro, no ambos.
+`--plant`, `--server` y `--client` son mutuamente excluyentes — se usa uno solo. La diferencia entre `--plant`/`--server` y `--client`: los dos primeros filtran por el campo `plant`/`serv_name` de cada servidor sin importar en qué archivo esté; `--client` revisa TODOS los servidores de un archivo puntual, sin importar a qué planta pertenezcan.
 
 ## Qué hace el programa
 
@@ -112,22 +125,23 @@ Axis, Hikvision, Vivotek y Dahua — cada una con su propio módulo en `conf/cam
 
 ## Qué resultados entrega
 
-Todo queda bajo `RESULT_PATH`, organizado por fecha, planta y servidor:
+Todo queda bajo `RESULT_PATH`, organizado por cliente, fecha, planta y servidor — un cliente nunca mezcla sus resultados con los de otro:
 
 ```text
 RESULT_PATH/
-  09- Septiembre/
-    170926/                          <- fecha (ddmmaa)
-      resumen_17-09-2026.log         <- resumen de la corrida completa
-      NOMBRE_PLANTA/
-        NOMBRE_SERVIDOR/
-          NOMBRE_SERVIDOR.log        <- log detallado de ese servidor
-          alias_camara.jpg           <- imagen directa de la cámara
-          alias_camara_ai.jpg        <- imagen procesada por la IA
-          alias_camara.json          <- configuración de la cámara
+  <client_id>/                       <- uno por archivo de conf/plants/*.yaml
+    09- Septiembre/
+      170926/                        <- fecha (ddmmaa)
+        resumen_17-09-2026.log       <- resumen de ESTE cliente en esta corrida
+        NOMBRE_PLANTA/
+          NOMBRE_SERVIDOR/
+            NOMBRE_SERVIDOR.log      <- log detallado de ese servidor
+            alias_camara.jpg         <- imagen directa de la cámara
+            alias_camara_ai.jpg      <- imagen procesada por la IA
+            alias_camara.json        <- configuración de la cámara
 ```
 
-El **resumen** (`resumen_dd-mm-aaaa.log`) es el primer lugar para revisar una corrida. Solo se genera cuando se revisa más de un servidor (`--plant all`, o una planta con varios servidores) — para un solo servidor, su propio log ya es suficiente. Tiene tres partes:
+El **resumen** (`resumen_dd-mm-aaaa.log`) es el primer lugar para revisar una corrida. Se genera uno por cliente (una corrida con `--client all`/`--plant all` que toca varios clientes genera un resumen por cada uno, no uno mezclado), y solo cuando ese cliente tuvo más de un servidor revisado — para un solo servidor, su propio log ya es suficiente. Tiene tres partes:
 
 1. Totales generales (servidores/cámaras revisados, completos, con falla).
 2. **`DETALLE POR SERVIDOR`**: una línea por cada servidor revisado, siempre presente — a diferencia del resto del resumen, que solo lista excepciones, aquí ningún servidor puede "desaparecer" por estar perfecto ni por estar caído:
@@ -167,4 +181,4 @@ El log de cada servidor se escribe en vivo mientras corre (así queda un rastro 
 pipenv run pytest
 ```
 
-Cubre funciones puras (sin red): detección de marca, extracción de credenciales de una URL, parseo de configuración de cada marca, clasificación de códigos de estado, validación de campos requeridos en `plants.yaml`, reintentos de `Cam_Config()`, verificación de que un túnel SSH apunte al destino correcto, y el orden/contenido del resumen (`DETALLE POR SERVIDOR`/`DETALLE POR PLANTA`, estrategias de `sort_strategies.py`).
+Cubre funciones puras (sin red): detección de marca, extracción de credenciales de una URL, parseo de configuración de cada marca, clasificación de códigos de estado, validación de campos requeridos de un servidor, reintentos de `Cam_Config()`, verificación de que un túnel SSH apunte al destino correcto, y el orden/contenido del resumen (`DETALLE POR SERVIDOR`/`DETALLE POR PLANTA`, estrategias de `sort_strategies.py`).
